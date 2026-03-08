@@ -1,0 +1,2531 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>ShadowWatch AI — Hidden Economy Detection</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=JetBrains+Mono:wght@300;400;600&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg-void: #040810;
+    --bg-deep: #070d1a;
+    --bg-panel: #0a1628;
+    --bg-card: #0e1e35;
+    --bg-hover: #142540;
+    --cyan: #00e5ff;
+    --cyan-dim: #007a8a;
+    --amber: #ffaa00;
+    --amber-dim: #6b4700;
+    --danger: #ff3b5c;
+    --danger-dim: #6b1525;
+    --success: #00ff88;
+    --success-dim: #005533;
+    --purple: #a855f7;
+    --text-primary: #e8f4f8;
+    --text-secondary: #7a9db5;
+    --text-muted: #3a5568;
+    --border: #1a3050;
+    --border-bright: #2a4a6a;
+    --grid-color: rgba(0,229,255,0.04);
+    --shadow-glow-cyan: 0 0 20px rgba(0,229,255,0.15);
+    --shadow-glow-amber: 0 0 20px rgba(255,170,0,0.15);
+    --shadow-glow-danger: 0 0 20px rgba(255,59,92,0.2);
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html, body { height:100%; overflow:hidden; }
+  body {
+    font-family: 'DM Sans', sans-serif;
+    background: var(--bg-void);
+    color: var(--text-primary);
+    overflow: hidden;
+  }
+
+  /* GRID BG */
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    background-image:
+      linear-gradient(var(--grid-color) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid-color) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  /* SCANLINE */
+  body::after {
+    content: '';
+    position: fixed; inset: 0;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0,0,0,0.03) 2px,
+      rgba(0,0,0,0.03) 4px
+    );
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  #root { position: relative; z-index: 1; height: 100vh; overflow: hidden; display: flex; flex-direction: column; }
+
+  /* NAV */
+  nav {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 28px;
+    height: 58px;
+    background: rgba(4,8,16,0.95);
+    border-bottom: 1px solid var(--border);
+    backdrop-filter: blur(20px);
+    flex-shrink: 0;
+  }
+  .nav-logo {
+    display: flex; align-items: center; gap: 10px;
+    font-family: 'Orbitron', monospace;
+    font-weight: 700;
+    font-size: 15px;
+    color: var(--cyan);
+    letter-spacing: 2px;
+    text-transform: uppercase;
+  }
+  .nav-logo svg { width:28px; height:28px; }
+  .logo-eye { animation: eyePulse 3s ease-in-out infinite; }
+  @keyframes eyePulse {
+    0%,100% { opacity:1; filter: drop-shadow(0 0 4px var(--cyan)); }
+    50% { opacity:0.6; filter: drop-shadow(0 0 12px var(--cyan)); }
+  }
+  .nav-links { display: flex; gap: 4px; }
+  .nav-btn {
+    padding: 6px 16px;
+    border-radius: 4px;
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--text-secondary);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 1px;
+    cursor: pointer;
+    transition: all .2s;
+    text-transform: uppercase;
+  }
+  .nav-btn:hover { color: var(--cyan); border-color: var(--cyan-dim); background: rgba(0,229,255,0.04); }
+  .nav-btn.active { color: var(--cyan); border-color: var(--cyan); background: rgba(0,229,255,0.08); box-shadow: 0 0 10px rgba(0,229,255,0.1); }
+  .nav-status {
+    display: flex; align-items: center; gap: 8px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--success);
+  }
+  .status-dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--success);
+    box-shadow: 0 0 8px var(--success);
+    animation: blink 2s ease-in-out infinite;
+  }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+  /* MAIN */
+  .main { flex: 1; overflow-y: auto; overflow-x: hidden; }
+  .main::-webkit-scrollbar { width: 4px; }
+  .main::-webkit-scrollbar-track { background: var(--bg-void); }
+  .main::-webkit-scrollbar-thumb { background: var(--border-bright); border-radius: 2px; }
+
+  /* PAGE */
+  .page { display: none; min-height: calc(100vh - 58px); }
+  .page.active { display: block; animation: fadeIn .3s ease; }
+  @keyframes fadeIn { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+
+  /* ===== HOME PAGE ===== */
+  .home-hero {
+    min-height: calc(100vh - 58px);
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    padding: 60px 40px;
+    position: relative;
+    overflow: hidden;
+  }
+  .hero-glow {
+    position: absolute;
+    width: 600px; height: 600px;
+    background: radial-gradient(circle, rgba(0,229,255,0.06) 0%, transparent 70%);
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+  }
+  .hero-glow2 {
+    position: absolute;
+    width: 400px; height: 400px;
+    background: radial-gradient(circle, rgba(255,170,0,0.04) 0%, transparent 70%);
+    top: 30%; right: 10%;
+    pointer-events: none;
+  }
+  .hero-badge {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 3px;
+    color: var(--cyan);
+    text-transform: uppercase;
+    padding: 6px 16px;
+    border: 1px solid var(--cyan-dim);
+    border-radius: 2px;
+    background: rgba(0,229,255,0.05);
+    margin-bottom: 28px;
+  }
+  .hero-title {
+    font-family: 'Orbitron', monospace;
+    font-size: clamp(32px, 5vw, 62px);
+    font-weight: 900;
+    line-height: 1.05;
+    text-align: center;
+    letter-spacing: -1px;
+    margin-bottom: 8px;
+  }
+  .hero-title .line1 { color: var(--text-primary); }
+  .hero-title .line2 {
+    background: linear-gradient(135deg, var(--cyan) 0%, var(--purple) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .hero-sub {
+    font-size: 16px;
+    color: var(--text-secondary);
+    max-width: 560px;
+    text-align: center;
+    line-height: 1.7;
+    margin-bottom: 48px;
+  }
+  .hero-cta { display: flex; gap: 16px; flex-wrap: wrap; justify-content: center; margin-bottom: 80px; }
+  .btn-primary {
+    padding: 12px 32px;
+    background: var(--cyan);
+    color: var(--bg-void);
+    font-family: 'Orbitron', monospace;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    border: none;
+    border-radius: 2px;
+    cursor: pointer;
+    transition: all .2s;
+    box-shadow: 0 0 30px rgba(0,229,255,0.3);
+  }
+  .btn-primary:hover { background: #33eeff; box-shadow: 0 0 40px rgba(0,229,255,0.5); transform: translateY(-1px); }
+  .btn-outline {
+    padding: 12px 32px;
+    background: transparent;
+    color: var(--text-primary);
+    font-family: 'Orbitron', monospace;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    border: 1px solid var(--border-bright);
+    border-radius: 2px;
+    cursor: pointer;
+    transition: all .2s;
+  }
+  .btn-outline:hover { border-color: var(--cyan); color: var(--cyan); background: rgba(0,229,255,0.05); }
+
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1px;
+    background: var(--border);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    overflow: hidden;
+    width: 100%;
+    max-width: 900px;
+    margin-bottom: 80px;
+  }
+  .stat-cell {
+    background: var(--bg-panel);
+    padding: 24px 28px;
+    text-align: center;
+    transition: background .2s;
+  }
+  .stat-cell:hover { background: var(--bg-card); }
+  .stat-num {
+    font-family: 'Orbitron', monospace;
+    font-size: 28px;
+    font-weight: 700;
+    color: var(--cyan);
+    display: block;
+    text-shadow: 0 0 20px rgba(0,229,255,0.4);
+  }
+  .stat-label {
+    font-size: 11px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-top: 4px;
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  .features-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+    width: 100%;
+    max-width: 900px;
+  }
+  .feature-card {
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 24px;
+    transition: all .2s;
+    position: relative;
+    overflow: hidden;
+  }
+  .feature-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: var(--cyan);
+    transform: scaleX(0);
+    transition: transform .3s;
+    transform-origin: left;
+  }
+  .feature-card:hover { border-color: var(--cyan-dim); background: var(--bg-card); }
+  .feature-card:hover::before { transform: scaleX(1); }
+  .feature-icon {
+    width: 36px; height: 36px;
+    margin-bottom: 14px;
+    color: var(--cyan);
+  }
+  .feature-title {
+    font-family: 'Orbitron', monospace;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    color: var(--text-primary);
+    margin-bottom: 8px;
+    text-transform: uppercase;
+  }
+  .feature-desc { font-size: 13px; color: var(--text-secondary); line-height: 1.6; }
+
+  /* ===== UPLOAD PAGE ===== */
+  .upload-page { padding: 40px; }
+  .page-header { margin-bottom: 32px; }
+  .page-title {
+    font-family: 'Orbitron', monospace;
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--text-primary);
+    letter-spacing: 1px;
+    text-transform: uppercase;
+  }
+  .page-subtitle { font-size: 13px; color: var(--text-secondary); margin-top: 6px; font-family: 'JetBrains Mono', monospace; }
+  .breadcrumb {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-bottom: 8px;
+    display: flex; gap: 6px; align-items: center;
+  }
+  .breadcrumb .sep { color: var(--cyan); }
+
+  .upload-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+  .panel {
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  .panel-header {
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 10px;
+    background: rgba(0,0,0,0.2);
+  }
+  .panel-title {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--cyan);
+    letter-spacing: 1px;
+    text-transform: uppercase;
+  }
+  .panel-dot { width:6px; height:6px; border-radius:50%; background: var(--cyan); box-shadow: 0 0 6px var(--cyan); }
+  .panel-body { padding: 20px; }
+
+  .drop-zone {
+    border: 2px dashed var(--border-bright);
+    border-radius: 6px;
+    padding: 40px;
+    text-align: center;
+    cursor: pointer;
+    transition: all .2s;
+    position: relative;
+  }
+  .drop-zone:hover { border-color: var(--cyan); background: rgba(0,229,255,0.03); }
+  .drop-zone.drag-over { border-color: var(--cyan); background: rgba(0,229,255,0.08); box-shadow: var(--shadow-glow-cyan); }
+  .drop-zone input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+  .drop-icon { font-size: 36px; margin-bottom: 12px; }
+  .drop-text { font-size: 13px; color: var(--text-secondary); }
+  .drop-hint { font-size: 11px; color: var(--text-muted); margin-top: 6px; font-family: 'JetBrains Mono', monospace; }
+
+  .sample-datasets { display: flex; flex-direction: column; gap: 8px; }
+  .sample-item {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 16px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all .2s;
+  }
+  .sample-item:hover { border-color: var(--cyan-dim); background: var(--bg-hover); }
+  .sample-name { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--text-primary); }
+  .sample-meta { font-size: 11px; color: var(--text-muted); }
+  .sample-tag {
+    padding: 2px 8px;
+    border-radius: 2px;
+    font-size: 10px;
+    font-family: 'JetBrains Mono', monospace;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+  }
+  .tag-csv { background: rgba(0,229,255,0.1); color: var(--cyan); border: 1px solid var(--cyan-dim); }
+  .tag-img { background: rgba(168,85,247,0.1); color: var(--purple); border: 1px solid rgba(168,85,247,0.3); }
+  .tag-news { background: rgba(255,170,0,0.1); color: var(--amber); border: 1px solid var(--amber-dim); }
+
+  .manual-input { display: flex; flex-direction: column; gap: 12px; }
+  .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .form-group { display: flex; flex-direction: column; gap: 6px; }
+  .form-label { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; }
+  .form-input, .form-select {
+    background: var(--bg-card);
+    border: 1px solid var(--border-bright);
+    color: var(--text-primary);
+    padding: 10px 14px;
+    border-radius: 4px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    outline: none;
+    transition: border-color .2s;
+    width: 100%;
+  }
+  .form-input:focus, .form-select:focus { border-color: var(--cyan); box-shadow: 0 0 0 2px rgba(0,229,255,0.1); }
+  .form-select option { background: var(--bg-panel); }
+
+  .analyze-btn {
+    width: 100%;
+    padding: 14px;
+    background: linear-gradient(135deg, var(--cyan) 0%, #0099bb 100%);
+    color: var(--bg-void);
+    font-family: 'Orbitron', monospace;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all .2s;
+    box-shadow: 0 4px 20px rgba(0,229,255,0.25);
+    margin-top: 8px;
+  }
+  .analyze-btn:hover { box-shadow: 0 4px 30px rgba(0,229,255,0.4); transform: translateY(-1px); }
+
+  .uploaded-files { display: flex; flex-direction: column; gap: 6px; max-height: 200px; overflow-y: auto; }
+  .file-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 12px;
+    background: var(--bg-card);
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--text-secondary);
+  }
+  .file-status { color: var(--success); }
+  .file-size { color: var(--text-muted); margin-left: auto; }
+
+  /* ===== ANALYSIS PAGE ===== */
+  .analysis-page { padding: 40px; }
+  .analysis-grid { display: grid; grid-template-columns: 1fr 380px; gap: 24px; }
+  .pipeline-track { display: flex; flex-direction: column; gap: 4px; }
+  .pipe-step {
+    display: flex; align-items: center; gap: 16px;
+    padding: 16px 20px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--bg-panel);
+    position: relative;
+    overflow: hidden;
+    transition: all .3s;
+  }
+  .pipe-step.running { border-color: var(--cyan); box-shadow: 0 0 15px rgba(0,229,255,0.1); }
+  .pipe-step.done { border-color: var(--success-dim); }
+  .pipe-step.waiting { opacity: 0.4; }
+  .pipe-progress {
+    position: absolute; top: 0; left: 0; bottom: 0;
+    background: rgba(0,229,255,0.04);
+    transition: width 0.5s linear;
+  }
+  .pipe-icon { font-size: 22px; z-index:1; }
+  .pipe-info { flex: 1; z-index:1; }
+  .pipe-name { font-family: 'Orbitron', monospace; font-size: 12px; color: var(--text-primary); letter-spacing: 1px; text-transform: uppercase; }
+  .pipe-detail { font-size: 12px; color: var(--text-secondary); margin-top: 3px; font-family: 'JetBrains Mono', monospace; }
+  .pipe-state {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    padding: 4px 10px;
+    border-radius: 2px;
+    z-index:1;
+  }
+  .state-running { color: var(--cyan); background: rgba(0,229,255,0.1); animation: pulse2 1s ease-in-out infinite; }
+  .state-done { color: var(--success); background: rgba(0,255,136,0.1); }
+  .state-wait { color: var(--text-muted); background: rgba(255,255,255,0.05); }
+  @keyframes pulse2 { 0%,100%{opacity:1} 50%{opacity:0.5} }
+
+  .progress-bar-outer {
+    height: 4px;
+    background: var(--border);
+    border-radius: 2px;
+    overflow: hidden;
+    margin: 6px 0;
+  }
+  .progress-bar-inner {
+    height: 100%;
+    background: linear-gradient(90deg, var(--cyan) 0%, var(--purple) 100%);
+    border-radius: 2px;
+    transition: width .5s linear;
+    box-shadow: 0 0 10px rgba(0,229,255,0.5);
+  }
+
+  .log-box {
+    background: var(--bg-void);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 16px;
+    height: 200px;
+    overflow-y: auto;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    line-height: 1.7;
+  }
+  .log-box::-webkit-scrollbar { width: 3px; }
+  .log-box::-webkit-scrollbar-thumb { background: var(--border-bright); }
+  .log-line { display: flex; gap: 10px; }
+  .log-ts { color: var(--text-muted); }
+  .log-msg-info { color: var(--cyan); }
+  .log-msg-warn { color: var(--amber); }
+  .log-msg-ok { color: var(--success); }
+  .log-msg-err { color: var(--danger); }
+
+  .result-card {
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 20px;
+    position: relative;
+    overflow: hidden;
+  }
+  .result-card.high { border-color: var(--danger); box-shadow: var(--shadow-glow-danger); }
+  .result-card.medium { border-color: var(--amber); box-shadow: var(--shadow-glow-amber); }
+  .result-card.low { border-color: var(--success-dim); }
+
+  .risk-score-big {
+    font-family: 'Orbitron', monospace;
+    font-size: 56px;
+    font-weight: 900;
+    line-height: 1;
+    margin: 10px 0;
+  }
+  .risk-high { color: var(--danger); text-shadow: 0 0 30px rgba(255,59,92,0.5); }
+  .risk-medium { color: var(--amber); text-shadow: 0 0 30px rgba(255,170,0,0.5); }
+  .risk-low { color: var(--success); text-shadow: 0 0 30px rgba(0,255,136,0.5); }
+
+  .signal-list { display: flex; flex-direction: column; gap: 6px; }
+  .signal-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 12px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .signal-item.high { background: rgba(255,59,92,0.08); border-left: 2px solid var(--danger); color: var(--danger); }
+  .signal-item.medium { background: rgba(255,170,0,0.08); border-left: 2px solid var(--amber); color: var(--amber); }
+  .signal-item.low { background: rgba(0,229,255,0.06); border-left: 2px solid var(--cyan); color: var(--cyan); }
+
+  /* ===== DASHBOARD PAGE ===== */
+  .dashboard-page { padding: 0; height: calc(100vh - 58px); display: flex; flex-direction: column; }
+  .dash-topbar {
+    display: flex; align-items: center; gap: 16px;
+    padding: 10px 24px;
+    background: rgba(4,8,16,0.8);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+    backdrop-filter: blur(10px);
+  }
+  .dash-topbar-title { font-family: 'Orbitron', monospace; font-size: 11px; color: var(--text-muted); letter-spacing: 2px; text-transform: uppercase; }
+  .filter-btn {
+    padding: 5px 14px;
+    border-radius: 2px;
+    border: 1px solid var(--border-bright);
+    background: transparent;
+    color: var(--text-secondary);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 1px;
+    cursor: pointer;
+    text-transform: uppercase;
+    transition: all .15s;
+  }
+  .filter-btn:hover { border-color: var(--cyan); color: var(--cyan); }
+  .filter-btn.active { background: rgba(0,229,255,0.1); border-color: var(--cyan); color: var(--cyan); }
+  .ml-auto { margin-left: auto; }
+
+  .dash-body { flex: 1; display: grid; grid-template-columns: 1fr 380px; overflow: hidden; }
+  .map-container { position: relative; background: #050c18; }
+  #map { width: 100%; height: 100%; }
+
+  /* Leaflet custom */
+  .leaflet-container { background: #050c18 !important; }
+  .leaflet-tile { filter: brightness(0.3) saturate(0.5) hue-rotate(180deg); }
+  .risk-popup .leaflet-popup-content-wrapper {
+    background: var(--bg-panel);
+    border: 1px solid var(--border-bright);
+    color: var(--text-primary);
+    border-radius: 6px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+  }
+  .risk-popup .leaflet-popup-tip { background: var(--bg-panel); }
+
+  .map-overlay {
+    position: absolute; top: 16px; left: 16px;
+    background: rgba(4,8,16,0.9);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 14px 16px;
+    backdrop-filter: blur(16px);
+    z-index: 900;
+    min-width: 180px;
+  }
+  .legend-title { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 10px; }
+  .legend-item { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-size: 12px; color: var(--text-secondary); font-family: 'JetBrains Mono', monospace; }
+  .legend-dot { width: 10px; height: 10px; border-radius: 50%; }
+  .dot-high { background: var(--danger); box-shadow: 0 0 6px var(--danger); }
+  .dot-medium { background: var(--amber); box-shadow: 0 0 6px var(--amber); }
+  .dot-low { background: var(--success); box-shadow: 0 0 6px var(--success); }
+
+  .map-counter {
+    position: absolute; bottom: 16px; left: 16px;
+    background: rgba(4,8,16,0.9);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 8px 14px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--text-muted);
+    z-index: 900;
+    display: flex; gap: 16px;
+  }
+  .counter-val { color: var(--text-primary); font-weight: 600; }
+
+  .dash-sidebar { display: flex; flex-direction: column; overflow: hidden; background: var(--bg-deep); border-left: 1px solid var(--border); }
+  .sidebar-tabs {
+    display: flex;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .tab-btn {
+    flex: 1;
+    padding: 12px;
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: all .2s;
+  }
+  .tab-btn:hover { color: var(--text-secondary); }
+  .tab-btn.active { color: var(--cyan); border-bottom-color: var(--cyan); background: rgba(0,229,255,0.04); }
+
+  .tab-content { display: none; flex: 1; overflow-y: auto; padding: 16px; }
+  .tab-content.active { display: block; }
+  .tab-content::-webkit-scrollbar { width: 3px; }
+  .tab-content::-webkit-scrollbar-thumb { background: var(--border); }
+
+  .alert-card {
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 14px;
+    margin-bottom: 10px;
+    cursor: pointer;
+    transition: all .2s;
+    position: relative;
+    overflow: hidden;
+  }
+  .alert-card::after {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; bottom: 0;
+    width: 3px;
+  }
+  .alert-card.high::after { background: var(--danger); }
+  .alert-card.medium::after { background: var(--amber); }
+  .alert-card.low::after { background: var(--success); }
+  .alert-card:hover { border-color: var(--border-bright); transform: translateX(2px); }
+  .alert-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+  .alert-region { font-family: 'Orbitron', monospace; font-size: 12px; color: var(--text-primary); letter-spacing: 1px; text-transform: uppercase; }
+  .alert-score {
+    font-family: 'Orbitron', monospace;
+    font-size: 18px;
+    font-weight: 700;
+  }
+  .score-high { color: var(--danger); }
+  .score-medium { color: var(--amber); }
+  .score-low { color: var(--success); }
+  .alert-signals { display: flex; flex-wrap: wrap; gap: 4px; }
+  .signal-chip {
+    padding: 2px 8px;
+    border-radius: 2px;
+    font-size: 10px;
+    font-family: 'JetBrains Mono', monospace;
+    letter-spacing: 0.5px;
+  }
+  .chip-deforest { background: rgba(255,170,0,0.1); color: var(--amber); border: 1px solid var(--amber-dim); }
+  .chip-mining { background: rgba(255,59,92,0.1); color: var(--danger); border: 1px solid var(--danger-dim); }
+  .chip-trade { background: rgba(0,229,255,0.08); color: var(--cyan); border: 1px solid var(--cyan-dim); }
+  .chip-shipping { background: rgba(168,85,247,0.1); color: var(--purple); border: 1px solid rgba(168,85,247,0.3); }
+  .alert-time { font-size: 10px; color: var(--text-muted); margin-top: 8px; font-family: 'JetBrains Mono', monospace; }
+
+  .mini-chart-wrap { background: var(--bg-void); border-radius: 4px; padding: 10px; margin-bottom: 10px; }
+  .mini-chart-label { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
+
+  /* Scrollbar */
+  *::-webkit-scrollbar { width: 4px; height: 4px; }
+  *::-webkit-scrollbar-track { background: transparent; }
+  *::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  /* TICKER */
+  .ticker-bar {
+    background: rgba(0,0,0,0.6);
+    border-top: 1px solid var(--border);
+    padding: 6px 0;
+    overflow: hidden;
+    flex-shrink: 0;
+  }
+  .ticker-inner {
+    display: flex;
+    gap: 60px;
+    animation: ticker 40s linear infinite;
+    white-space: nowrap;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+  @keyframes ticker { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+  .ticker-item { display: inline-flex; align-items: center; gap: 8px; }
+  .ticker-alert { color: var(--danger); }
+  .ticker-warn { color: var(--amber); }
+  .ticker-ok { color: var(--success); }
+
+  /* Popup HTML */
+  .popup-region {
+    font-family: 'Orbitron', monospace;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text-primary);
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    margin-bottom: 10px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+  }
+  .popup-risk-row {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 10px;
+  }
+  .popup-score-label { font-size: 11px; color: var(--text-muted); font-family: 'JetBrains Mono', monospace; text-transform: uppercase; }
+  .popup-score { font-family: 'Orbitron', monospace; font-size: 20px; font-weight: 700; }
+  .popup-signals { font-size: 11px; color: var(--text-muted); font-family: 'JetBrains Mono', monospace; margin-bottom: 6px; text-transform: uppercase; }
+  .popup-sig-item { font-size: 12px; font-family: 'JetBrains Mono', monospace; padding: 3px 0; display: flex; align-items: center; gap: 6px; }
+  .popup-sig-item::before { content: '▸'; font-size: 10px; }
+
+  /* API Panel */
+  .api-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .api-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 12px;
+    font-family: 'JetBrains Mono', monospace;
+    cursor: pointer;
+    transition: all .2s;
+  }
+  .api-card:hover { border-color: var(--cyan-dim); }
+  .api-name { font-size: 11px; color: var(--cyan); letter-spacing: 0.5px; margin-bottom: 4px; }
+  .api-desc { font-size: 10px; color: var(--text-muted); }
+  .api-status { display: flex; align-items: center; gap: 4px; margin-top: 6px; font-size: 10px; color: var(--success); }
+  .api-dot { width: 4px; height: 4px; border-radius: 50%; background: var(--success); }
+
+  /* Misc */
+  .divider { height: 1px; background: var(--border); margin: 16px 0; }
+  .text-cyan { color: var(--cyan); }
+  .text-amber { color: var(--amber); }
+  .text-danger { color: var(--danger); }
+  .text-success { color: var(--success); }
+  .mono { font-family: 'JetBrains Mono', monospace; }
+  .section-title {
+    font-family: 'Orbitron', monospace;
+    font-size: 11px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    margin-bottom: 14px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .section-title::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+
+  /* ===== PREPROCESSING PAGE ===== */
+  .preprocess-page { padding: 32px 40px; }
+  .pp-grid { display: grid; grid-template-columns: 260px 1fr; gap: 24px; align-items: start; }
+  .pp-nav { position: sticky; top: 0; display: flex; flex-direction: column; gap: 4px; }
+  .pp-nav-item {
+    padding: 10px 14px;
+    border-radius: 4px;
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--text-secondary);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 1px;
+    cursor: pointer;
+    text-align: left;
+    transition: all .2s;
+    text-transform: uppercase;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .pp-nav-item:hover { color: var(--text-primary); background: var(--bg-card); }
+  .pp-nav-item.active { color: var(--cyan); background: rgba(0,229,255,0.06); border-color: var(--cyan-dim); }
+  .pp-nav-num { font-size: 10px; color: var(--text-muted); min-width: 16px; }
+  .pp-nav-item.active .pp-nav-num { color: var(--cyan); }
+
+  .pp-content { display: flex; flex-direction: column; gap: 20px; }
+  .pp-section { display: none; }
+  .pp-section.active { display: block; animation: fadeIn .25s ease; }
+
+  .pp-card {
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    margin-bottom: 16px;
+  }
+  .pp-card-header {
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+    background: rgba(0,0,0,0.15);
+  }
+  .pp-card-title {
+    font-family: 'Orbitron', monospace;
+    font-size: 12px;
+    color: var(--cyan);
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .pp-card-body { padding: 20px; }
+
+  .table-wrap { overflow-x: auto; border-radius: 4px; border: 1px solid var(--border); }
+  table { width: 100%; border-collapse: collapse; font-family: 'JetBrains Mono', monospace; font-size: 11px; }
+  thead tr { background: rgba(0,229,255,0.06); border-bottom: 1px solid var(--border); }
+  thead th { padding: 10px 14px; text-align: left; color: var(--cyan); font-weight: 600; letter-spacing: 1px; text-transform: uppercase; font-size: 10px; }
+  tbody tr { border-bottom: 1px solid rgba(26,48,80,0.5); transition: background .15s; }
+  tbody tr:hover { background: var(--bg-hover); }
+  tbody tr:last-child { border-bottom: none; }
+  td { padding: 8px 14px; color: var(--text-secondary); vertical-align: middle; }
+  td.val-raw { color: var(--amber); }
+  td.val-clean { color: var(--success); }
+  td.val-flag { color: var(--danger); }
+  td.val-normal { color: var(--text-primary); }
+  .cell-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 2px;
+    font-size: 10px;
+    letter-spacing: 0.5px;
+  }
+  .badge-null { background: rgba(255,59,92,0.1); color: var(--danger); border: 1px solid var(--danger-dim); }
+  .badge-outlier { background: rgba(255,170,0,0.1); color: var(--amber); border: 1px solid var(--amber-dim); }
+  .badge-clean { background: rgba(0,255,136,0.08); color: var(--success); border: 1px solid var(--success-dim); }
+  .badge-encoded { background: rgba(0,229,255,0.08); color: var(--cyan); border: 1px solid var(--cyan-dim); }
+  .badge-derived { background: rgba(168,85,247,0.1); color: var(--purple); border: 1px solid rgba(168,85,247,0.3); }
+
+  .code-block {
+    background: var(--bg-void);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 16px 18px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    line-height: 1.8;
+    overflow-x: auto;
+    position: relative;
+  }
+  .code-block .kw { color: #a855f7; }
+  .code-block .fn { color: var(--cyan); }
+  .code-block .str { color: var(--success); }
+  .code-block .num { color: var(--amber); }
+  .code-block .cm { color: var(--text-muted); font-style: italic; }
+  .code-block .cls { color: #f59e0b; }
+  .code-copy {
+    position: absolute; top: 10px; right: 10px;
+    padding: 4px 10px;
+    background: var(--bg-card);
+    border: 1px solid var(--border-bright);
+    color: var(--text-muted);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    border-radius: 2px;
+    cursor: pointer;
+    transition: all .15s;
+  }
+  .code-copy:hover { color: var(--cyan); border-color: var(--cyan-dim); }
+
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .three-col { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+  .metric-box {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 16px;
+    text-align: center;
+  }
+  .metric-val {
+    font-family: 'Orbitron', monospace;
+    font-size: 26px;
+    font-weight: 700;
+    color: var(--cyan);
+    display: block;
+    text-shadow: 0 0 16px rgba(0,229,255,0.3);
+  }
+  .metric-label { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; margin-top: 4px; }
+
+  .flow-diagram { display: flex; align-items: center; gap: 0; flex-wrap: wrap; margin: 8px 0; }
+  .flow-box {
+    padding: 8px 14px;
+    border: 1px solid var(--border-bright);
+    border-radius: 4px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--text-secondary);
+    background: var(--bg-card);
+    white-space: nowrap;
+  }
+  .flow-box.active-box { border-color: var(--cyan); color: var(--cyan); background: rgba(0,229,255,0.06); }
+  .flow-arrow { padding: 0 8px; color: var(--border-bright); font-size: 14px; }
+
+  .feat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .feat-item {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 12px 14px;
+  }
+  .feat-name { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--cyan); margin-bottom: 4px; }
+  .feat-formula { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--text-muted); margin-bottom: 6px; font-style: italic; }
+  .feat-desc { font-size: 11px; color: var(--text-secondary); line-height: 1.5; }
+  .feat-badge { display: inline-block; margin-top: 6px; }
+
+  .bar-chart-simple { display: flex; flex-direction: column; gap: 8px; }
+  .bar-row { display: flex; align-items: center; gap: 10px; }
+  .bar-label { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--text-secondary); min-width: 140px; text-align: right; }
+  .bar-track { flex: 1; height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; }
+  .bar-fill { height: 100%; border-radius: 3px; transition: width 1s ease; }
+  .bar-val { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--text-muted); min-width: 40px; }
+
+  .anomaly-table-wrap { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .pp-tag-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .pp-tag {
+    padding: 4px 10px;
+    border-radius: 2px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.5px;
+  }
+
+  .model-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 16px;
+    transition: all .2s;
+  }
+  .model-card:hover { border-color: var(--cyan-dim); }
+  .model-card-name { font-family: 'Orbitron', monospace; font-size: 12px; color: var(--text-primary); letter-spacing: 1px; text-transform: uppercase; margin-bottom: 6px; }
+  .model-card-type { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--cyan); margin-bottom: 10px; text-transform: uppercase; letter-spacing: 1px; }
+  .model-card-desc { font-size: 12px; color: var(--text-secondary); line-height: 1.6; margin-bottom: 12px; }
+  .model-params { display: flex; flex-direction: column; gap: 4px; }
+  .param-row { display: flex; justify-content: space-between; font-family: 'JetBrains Mono', monospace; font-size: 10px; padding: 4px 0; border-bottom: 1px solid var(--border); }
+  .param-key { color: var(--text-muted); }
+  .param-val { color: var(--amber); }
+
+  .pp-progress-ring { display: flex; align-items: center; gap: 16px; }
+  .ring-label { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-secondary); }
+
+  @media (max-width: 900px) {
+    .stats-grid { grid-template-columns: repeat(2,1fr); }
+    .features-grid { grid-template-columns: 1fr 1fr; }
+    .upload-grid { grid-template-columns: 1fr; }
+    .analysis-grid { grid-template-columns: 1fr; }
+    .dash-body { grid-template-columns: 1fr; }
+    .dash-sidebar { display: none; }
+    .pp-grid { grid-template-columns: 1fr; }
+    .two-col, .three-col, .feat-grid, .anomaly-table-wrap { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div id="root">
+  <!-- NAV -->
+  <nav>
+    <div class="nav-logo">
+      <svg class="logo-eye" viewBox="0 0 28 28" fill="none">
+        <circle cx="14" cy="14" r="11" stroke="currentColor" stroke-width="1.5"/>
+        <ellipse cx="14" cy="14" rx="7" ry="5" stroke="currentColor" stroke-width="1.2"/>
+        <circle cx="14" cy="14" r="2.5" fill="currentColor"/>
+        <circle cx="14" cy="14" r="1" fill="#040810"/>
+        <line x1="3" y1="14" x2="6" y2="14" stroke="currentColor" stroke-width="1.5"/>
+        <line x1="22" y1="14" x2="25" y2="14" stroke="currentColor" stroke-width="1.5"/>
+      </svg>
+      ShadowWatch AI
+    </div>
+    <div class="nav-links">
+      <button class="nav-btn active" onclick="navigate('home')">Home</button>
+      <button class="nav-btn" onclick="navigate('upload')">Data Upload</button>
+      <button class="nav-btn" onclick="navigate('preprocess')">Preprocessing</button>
+      <button class="nav-btn" onclick="navigate('analysis')">AI Analysis</button>
+      <button class="nav-btn" onclick="navigate('dashboard')">Dashboard</button>
+    </div>
+    <div class="nav-status">
+      <div class="status-dot"></div>
+      SYSTEM ONLINE
+    </div>
+  </nav>
+
+  <!-- MAIN -->
+  <div class="main">
+
+    <!-- HOME PAGE -->
+    <div id="page-home" class="page active">
+      <div class="home-hero">
+        <div class="hero-glow"></div>
+        <div class="hero-glow2"></div>
+        <div class="hero-badge">Multi-Source Intelligence Platform</div>
+        <h1 class="hero-title">
+          <div class="line1">DETECTING</div>
+          <div class="line2">HIDDEN ECONOMIES</div>
+        </h1>
+        <p class="hero-sub">
+          ShadowWatch AI cross-references satellite imagery, trade flows, shipping routes,
+          and news signals to surface hidden illegal activities — before they escalate.
+        </p>
+        <div class="hero-cta">
+          <button class="btn-primary" onclick="navigate('upload')">BEGIN ANALYSIS</button>
+          <button class="btn-outline" onclick="navigate('dashboard')">VIEW DASHBOARD</button>
+        </div>
+        <div class="stats-grid">
+          <div class="stat-cell"><span class="stat-num">142</span><div class="stat-label">Active Alerts</div></div>
+          <div class="stat-cell"><span class="stat-num">38</span><div class="stat-label">High Risk Zones</div></div>
+          <div class="stat-cell"><span class="stat-num">6</span><div class="stat-label">Data Sources</div></div>
+          <div class="stat-cell"><span class="stat-num">94.2%</span><div class="stat-label">Detection Accuracy</div></div>
+        </div>
+        <div class="features-grid">
+          <div class="feature-card">
+            <svg class="feature-icon" viewBox="0 0 36 36" fill="none" stroke="currentColor" stroke-width="1.5">
+              <rect x="4" y="4" width="12" height="12" rx="1"/>
+              <rect x="20" y="4" width="12" height="12" rx="1"/>
+              <rect x="4" y="20" width="12" height="12" rx="1"/>
+              <rect x="20" y="20" width="12" height="12" rx="1"/>
+              <circle cx="18" cy="18" r="3" fill="currentColor"/>
+            </svg>
+            <div class="feature-title">Satellite Analysis</div>
+            <div class="feature-desc">Automated land-use change detection via Copernicus & GFW satellite data feeds.</div>
+          </div>
+          <div class="feature-card">
+            <svg class="feature-icon" viewBox="0 0 36 36" fill="none" stroke="currentColor" stroke-width="1.5">
+              <polyline points="4,28 12,18 18,22 26,10 32,14"/>
+              <circle cx="4" cy="28" r="2" fill="currentColor"/>
+              <circle cx="32" cy="14" r="2" fill="currentColor"/>
+            </svg>
+            <div class="feature-title">Trade Anomaly Detection</div>
+            <div class="feature-desc">AI-powered analysis of UN Comtrade flows to flag irregular export/import spikes.</div>
+          </div>
+          <div class="feature-card">
+            <svg class="feature-icon" viewBox="0 0 36 36" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M18 4 L4 12 L4 24 L18 32 L32 24 L32 12 Z"/>
+              <circle cx="18" cy="18" r="5"/>
+              <line x1="18" y1="4" x2="18" y2="13"/>
+              <line x1="18" y1="23" x2="18" y2="32"/>
+            </svg>
+            <div class="feature-title">Shipping Intelligence</div>
+            <div class="feature-desc">Global Fishing Watch AIS data analysis to detect dark vessels and route anomalies.</div>
+          </div>
+          <div class="feature-card">
+            <svg class="feature-icon" viewBox="0 0 36 36" fill="none" stroke="currentColor" stroke-width="1.5">
+              <rect x="4" y="8" width="28" height="20" rx="2"/>
+              <line x1="4" y1="14" x2="32" y2="14"/>
+              <line x1="12" y1="8" x2="12" y2="28"/>
+            </svg>
+            <div class="feature-title">NLP News Signals</div>
+            <div class="feature-desc">Real-time extraction of illegal activity keywords from global news streams.</div>
+          </div>
+          <div class="feature-card">
+            <svg class="feature-icon" viewBox="0 0 36 36" fill="none" stroke="currentColor" stroke-width="1.5">
+              <circle cx="18" cy="18" r="12"/>
+              <circle cx="18" cy="18" r="6"/>
+              <circle cx="18" cy="18" r="2" fill="currentColor"/>
+              <line x1="18" y1="6" x2="18" y2="4"/>
+              <line x1="18" y1="32" x2="18" y2="30"/>
+              <line x1="6" y1="18" x2="4" y2="18"/>
+              <line x1="32" y1="18" x2="30" y2="18"/>
+            </svg>
+            <div class="feature-title">Risk Scoring Engine</div>
+            <div class="feature-desc">Multi-signal fusion model calculates composite risk scores per geographic zone.</div>
+          </div>
+          <div class="feature-card">
+            <svg class="feature-icon" viewBox="0 0 36 36" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M4 28 L10 20 L16 24 L22 14 L28 18 L34 8"/>
+              <rect x="2" y="2" width="32" height="32" rx="2"/>
+            </svg>
+            <div class="feature-title">Live Dashboard</div>
+            <div class="feature-desc">Interactive global map with zoomable risk heatmaps, timelines, and drill-down alerts.</div>
+          </div>
+        </div>
+
+        <div style="margin-top:60px;width:100%;max-width:900px;">
+          <div class="section-title">Connected API Sources</div>
+          <div class="api-grid">
+            <div class="api-card">
+              <div class="api-name">Global Forest Watch</div>
+              <div class="api-desc">Deforestation alerts</div>
+              <div class="api-status"><div class="api-dot"></div>Connected</div>
+            </div>
+            <div class="api-card">
+              <div class="api-name">Copernicus EO</div>
+              <div class="api-desc">Satellite imagery</div>
+              <div class="api-status"><div class="api-dot"></div>Connected</div>
+            </div>
+            <div class="api-card">
+              <div class="api-name">UN Comtrade</div>
+              <div class="api-desc">Trade data flows</div>
+              <div class="api-status"><div class="api-dot"></div>Connected</div>
+            </div>
+            <div class="api-card">
+              <div class="api-name">Global Fishing Watch</div>
+              <div class="api-desc">Vessel tracking AIS</div>
+              <div class="api-status"><div class="api-dot"></div>Connected</div>
+            </div>
+            <div class="api-card">
+              <div class="api-name">OpenStreetMap</div>
+              <div class="api-desc">Overpass API</div>
+              <div class="api-status"><div class="api-dot"></div>Connected</div>
+            </div>
+            <div class="api-card">
+              <div class="api-name">World Bank</div>
+              <div class="api-desc">Economic indicators</div>
+              <div class="api-status"><div class="api-dot"></div>Connected</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- PREPROCESSING PAGE -->
+    <div id="page-preprocess" class="page">
+      <div class="preprocess-page">
+        <div class="page-header" style="margin-bottom:24px">
+          <div class="breadcrumb"><span>ShadowWatch</span><span class="sep">›</span><span>ML Pipeline</span></div>
+          <div class="page-title">Data Preprocessing & Feature Engineering</div>
+          <div class="page-subtitle">// Raw signal → cleaned dataset → engineered features → model-ready vectors</div>
+        </div>
+        <div class="pp-grid">
+          <!-- LEFT NAV -->
+          <div class="pp-nav">
+            <div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:2px;padding:0 14px;margin-bottom:8px">Pipeline Stages</div>
+            <button class="pp-nav-item active" onclick="showPP('raw',this)"><span class="pp-nav-num">01</span>Raw Data Inspection</button>
+            <button class="pp-nav-item" onclick="showPP('cleaning',this)"><span class="pp-nav-num">02</span>Data Cleaning</button>
+            <button class="pp-nav-item" onclick="showPP('normalization',this)"><span class="pp-nav-num">03</span>Normalization</button>
+            <button class="pp-nav-item" onclick="showPP('features',this)"><span class="pp-nav-num">04</span>Feature Engineering</button>
+            <button class="pp-nav-item" onclick="showPP('encoding',this)"><span class="pp-nav-num">05</span>Encoding & Fusion</button>
+            <button class="pp-nav-item" onclick="showPP('anomaly',this)"><span class="pp-nav-num">06</span>Anomaly Detection</button>
+            <button class="pp-nav-item" onclick="showPP('models',this)"><span class="pp-nav-num">07</span>ML Models</button>
+            <button class="pp-nav-item" onclick="showPP('output',this)"><span class="pp-nav-num">08</span>Output & Scoring</button>
+
+            <div style="margin-top:20px;padding:14px;background:var(--bg-card);border:1px solid var(--border);border-radius:6px">
+              <div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:12px">Dataset Stats</div>
+              <div style="display:flex;flex-direction:column;gap:8px">
+                <div style="display:flex;justify-content:space-between"><span class="mono" style="font-size:11px;color:var(--text-secondary)">Raw records</span><span class="mono" style="font-size:11px;color:var(--text-primary)">48,294</span></div>
+                <div style="display:flex;justify-content:space-between"><span class="mono" style="font-size:11px;color:var(--text-secondary)">After cleaning</span><span class="mono" style="font-size:11px;color:var(--success)">44,871</span></div>
+                <div style="display:flex;justify-content:space-between"><span class="mono" style="font-size:11px;color:var(--text-secondary)">Features (raw)</span><span class="mono" style="font-size:11px;color:var(--text-primary)">18</span></div>
+                <div style="display:flex;justify-content:space-between"><span class="mono" style="font-size:11px;color:var(--text-secondary)">Features (engineered)</span><span class="mono" style="font-size:11px;color:var(--cyan)">47</span></div>
+                <div style="display:flex;justify-content:space-between"><span class="mono" style="font-size:11px;color:var(--text-secondary)">Null rate (before)</span><span class="mono" style="font-size:11px;color:var(--amber)">7.1%</span></div>
+                <div style="display:flex;justify-content:space-between"><span class="mono" style="font-size:11px;color:var(--text-secondary)">Null rate (after)</span><span class="mono" style="font-size:11px;color:var(--success)">0.0%</span></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- RIGHT CONTENT -->
+          <div class="pp-content">
+
+            <!-- 01 RAW -->
+            <div class="pp-section active" id="pp-raw">
+              <div class="pp-card">
+                <div class="pp-card-header"><div class="pp-card-title">📋 Raw Data Schema — Multi-Source Inputs</div></div>
+                <div class="pp-card-body">
+                  <p style="font-size:13px;color:var(--text-secondary);margin-bottom:16px;line-height:1.7">Before any processing, data is ingested from 6 heterogeneous sources. Each source has different formats, sampling rates, and quality issues that must be addressed in subsequent stages.</p>
+                  <div class="table-wrap">
+                    <table>
+                      <thead><tr><th>Source</th><th>Field Name</th><th>Type</th><th>Sample Value</th><th>Issue</th></tr></thead>
+                      <tbody>
+                        <tr><td style="color:var(--cyan)">GFW API</td><td>forest_cover_pct</td><td>float</td><td class="val-raw">72.4</td><td><span class="cell-badge badge-null">3.2% nulls</span></td></tr>
+                        <tr><td style="color:var(--cyan)">GFW API</td><td>deforestation_delta</td><td>float</td><td class="val-raw">-15.2</td><td><span class="cell-badge badge-clean">OK</span></td></tr>
+                        <tr><td style="color:var(--purple)">Copernicus</td><td>ndvi_score</td><td>float</td><td class="val-raw">0.41</td><td><span class="cell-badge badge-null">1.8% nulls</span></td></tr>
+                        <tr><td style="color:var(--purple)">Copernicus</td><td>land_use_class</td><td>string</td><td class="val-raw">"forest"</td><td><span class="cell-badge badge-encoded">needs encoding</span></td></tr>
+                        <tr><td style="color:var(--amber)">UN Comtrade</td><td>gold_export_tons</td><td>float</td><td class="val-raw">600.0</td><td><span class="cell-badge badge-outlier">outlier</span></td></tr>
+                        <tr><td style="color:var(--amber)">UN Comtrade</td><td>timber_export_usd</td><td>float</td><td class="val-raw">NaN</td><td><span class="cell-badge badge-null">12.1% nulls</span></td></tr>
+                        <tr><td style="color:var(--amber)">UN Comtrade</td><td>reporter_country</td><td>string</td><td class="val-raw">"BRA"</td><td><span class="cell-badge badge-encoded">needs encoding</span></td></tr>
+                        <tr><td style="color:var(--success)">GFishWatch</td><td>ais_gap_hours</td><td>int</td><td class="val-raw">72</td><td><span class="cell-badge badge-outlier">outlier</span></td></tr>
+                        <tr><td style="color:var(--success)">GFishWatch</td><td>dark_vessel_count</td><td>int</td><td class="val-raw">12</td><td><span class="cell-badge badge-clean">OK</span></td></tr>
+                        <tr><td style="color:var(--success)">GFishWatch</td><td>vessel_speed_knots</td><td>float</td><td class="val-raw">-99.0</td><td><span class="cell-badge badge-outlier">sentinel val</span></td></tr>
+                        <tr><td style="color:var(--danger)">NLP Engine</td><td>news_mention_count</td><td>int</td><td class="val-raw">47</td><td><span class="cell-badge badge-clean">OK</span></td></tr>
+                        <tr><td style="color:var(--danger)">NLP Engine</td><td>sentiment_score</td><td>float</td><td class="val-raw">-0.73</td><td><span class="cell-badge badge-clean">OK</span></td></tr>
+                        <tr><td style="color:var(--text-muted)">World Bank</td><td>gdp_growth_pct</td><td>float</td><td class="val-raw">2.1</td><td><span class="cell-badge badge-null">4.4% nulls</span></td></tr>
+                        <tr><td style="color:var(--text-muted)">World Bank</td><td>trade_openness</td><td>float</td><td class="val-raw">58.4</td><td><span class="cell-badge badge-clean">OK</span></td></tr>
+                        <tr><td style="color:var(--text-muted)">World Bank</td><td>corruption_index</td><td>float</td><td class="val-raw">NaN</td><td><span class="cell-badge badge-null">8.9% nulls</span></td></tr>
+                        <tr><td style="color:var(--cyan)">OSM/Overpass</td><td>road_density_km2</td><td>float</td><td class="val-raw">0.34</td><td><span class="cell-badge badge-clean">OK</span></td></tr>
+                        <tr><td style="color:var(--cyan)">OSM/Overpass</td><td>mine_site_count</td><td>int</td><td class="val-raw">7</td><td><span class="cell-badge badge-clean">OK</span></td></tr>
+                        <tr><td style="color:var(--cyan)">OSM/Overpass</td><td>protected_area_overlap</td><td>bool</td><td class="val-raw">True</td><td><span class="cell-badge badge-clean">OK</span></td></tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+              <div class="three-col">
+                <div class="metric-box"><span class="metric-val">18</span><div class="metric-label">Raw Features</div></div>
+                <div class="metric-box"><span class="metric-val" style="color:var(--amber)">7.1%</span><div class="metric-label">Missing Values</div></div>
+                <div class="metric-box"><span class="metric-val" style="color:var(--danger)">6</span><div class="metric-label">Sources Merged</div></div>
+              </div>
+            </div>
+
+            <!-- 02 CLEANING -->
+            <div class="pp-section" id="pp-cleaning">
+              <div class="pp-card">
+                <div class="pp-card-header"><div class="pp-card-title">🧹 Step 1 — Missing Value Imputation</div></div>
+                <div class="pp-card-body">
+                  <p style="font-size:13px;color:var(--text-secondary);margin-bottom:16px;line-height:1.7">Different imputation strategies are applied per-column based on data type, distribution shape, and domain context. Numeric environmental signals use KNN imputation; economic indicators use forward-fill with regional median fallback.</p>
+                  <div class="code-block">
+<button class="code-copy" onclick="copyCode(this)">Copy</button>
+<span class="kw">import</span> pandas <span class="kw">as</span> pd
+<span class="kw">from</span> sklearn.impute <span class="kw">import</span> <span class="cls">KNNImputer</span>, <span class="cls">SimpleImputer</span>
+
+<span class="cm"># --- Strategy 1: KNN Imputation for satellite/environmental fields ---</span>
+env_cols = [<span class="str">'forest_cover_pct'</span>, <span class="str">'ndvi_score'</span>, <span class="str">'deforestation_delta'</span>]
+knn_imp = <span class="cls">KNNImputer</span>(n_neighbors=<span class="num">5</span>, weights=<span class="str">'distance'</span>)
+df[env_cols] = knn_imp.fit_transform(df[env_cols])
+
+<span class="cm"># --- Strategy 2: Median imputation for economic fields (robust to outliers) ---</span>
+econ_cols = [<span class="str">'gdp_growth_pct'</span>, <span class="str">'trade_openness'</span>, <span class="str">'corruption_index'</span>]
+med_imp = <span class="cls">SimpleImputer</span>(strategy=<span class="str">'median'</span>)
+df[econ_cols] = med_imp.fit_transform(df[econ_cols])
+
+<span class="cm"># --- Strategy 3: Forward-fill for time-series trade data ---</span>
+trade_cols = [<span class="str">'gold_export_tons'</span>, <span class="str">'timber_export_usd'</span>]
+df[trade_cols] = df.sort_values(<span class="str">'date'</span>)[trade_cols].ffill().bfill()
+
+<span class="cm"># --- Sentinel value handling: replace -99 with NaN then re-impute ---</span>
+df[<span class="str">'vessel_speed_knots'</span>].replace(<span class="num">-99.0</span>, pd.NA, inplace=<span class="kw">True</span>)
+df[<span class="str">'vessel_speed_knots'</span>].fillna(df[<span class="str">'vessel_speed_knots'</span>].median(), inplace=<span class="kw">True</span>)
+
+print(<span class="fn">f</span><span class="str">"Missing values after imputation: {df.isnull().sum().sum()}"</span>)  <span class="cm"># → 0</span></div>
+                </div>
+              </div>
+              <div class="pp-card">
+                <div class="pp-card-header"><div class="pp-card-title">🔍 Step 2 — Outlier Detection & Removal</div></div>
+                <div class="pp-card-body">
+                  <p style="font-size:13px;color:var(--text-secondary);margin-bottom:16px;line-height:1.7">Trade and export fields have extreme outliers caused by data entry errors, country aggregation mismatches, and genuine anomalies. We use IQR capping for training data only — genuine anomalies in inference data are retained as signals.</p>
+                  <div class="code-block">
+<button class="code-copy" onclick="copyCode(this)">Copy</button>
+<span class="kw">import</span> numpy <span class="kw">as</span> np
+
+<span class="kw">def</span> <span class="fn">iqr_cap</span>(series, multiplier=<span class="num">1.5</span>):
+    <span class="str">"""Cap outliers at IQR bounds — preserves distribution shape."""</span>
+    Q1, Q3 = series.quantile([<span class="num">0.25</span>, <span class="num">0.75</span>])
+    IQR = Q3 - Q1
+    lower, upper = Q1 - multiplier * IQR, Q3 + multiplier * IQR
+    <span class="kw">return</span> series.clip(lower, upper)
+
+<span class="kw">def</span> <span class="fn">zscore_flag</span>(series, threshold=<span class="num">3.0</span>):
+    <span class="str">"""Flag rows where z-score exceeds threshold as anomaly candidates."""</span>
+    z = (series - series.mean()) / series.std()
+    <span class="kw">return</span> (np.abs(z) > threshold).astype(int)
+
+<span class="cm"># Cap outliers in TRAINING data only</span>
+numeric_fields = [<span class="str">'gold_export_tons'</span>, <span class="str">'ais_gap_hours'</span>, <span class="str">'dark_vessel_count'</span>]
+<span class="kw">for</span> col <span class="kw">in</span> numeric_fields:
+    df_train[col] = <span class="fn">iqr_cap</span>(df_train[col])
+
+<span class="cm"># Flag outliers in INFERENCE data as potential anomalies</span>
+<span class="kw">for</span> col <span class="kw">in</span> numeric_fields:
+    df_infer[<span class="fn">f</span><span class="str">'{col}_outlier_flag'</span>] = <span class="fn">zscore_flag</span>(df_infer[col])
+
+<span class="cm"># Remove exact duplicates (same region + date + source)</span>
+df.drop_duplicates(subset=[<span class="str">'region_id'</span>, <span class="str">'date'</span>, <span class="str">'source'</span>], inplace=<span class="kw">True</span>)
+print(<span class="fn">f</span><span class="str">"Records after dedup: {len(df)}"</span>)  <span class="cm"># 48,294 → 44,871</span></div>
+                  <div style="margin-top:16px">
+                    <div class="table-wrap">
+                      <table>
+                        <thead><tr><th>Field</th><th>Before (mean)</th><th>After (mean)</th><th>Outliers Capped</th><th>Flagged as Anomaly</th></tr></thead>
+                        <tbody>
+                          <tr><td>gold_export_tons</td><td class="val-raw">218.4</td><td class="val-clean">201.3</td><td class="val-flag">342</td><td class="val-flag">47</td></tr>
+                          <tr><td>ais_gap_hours</td><td class="val-raw">8.2</td><td class="val-clean">6.1</td><td class="val-flag">198</td><td class="val-flag">83</td></tr>
+                          <tr><td>dark_vessel_count</td><td class="val-raw">3.7</td><td class="val-clean">2.9</td><td class="val-flag">119</td><td class="val-flag">31</td></tr>
+                          <tr><td>timber_export_usd</td><td class="val-raw">4.2M</td><td class="val-clean">3.8M</td><td class="val-flag">88</td><td class="val-flag">22</td></tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 03 NORMALIZATION -->
+            <div class="pp-section" id="pp-normalization">
+              <div class="pp-card">
+                <div class="pp-card-header"><div class="pp-card-title">📐 Normalization & Scaling Strategy</div></div>
+                <div class="pp-card-body">
+                  <p style="font-size:13px;color:var(--text-secondary);margin-bottom:16px;line-height:1.7">Different scaling methods are chosen per-field based on distribution shape. Export quantities are log-transformed (right-skewed), NDVI scores are min-max scaled (bounded 0–1), and economic indicators use RobustScaler to resist remaining outliers.</p>
+                  <div class="code-block">
+<button class="code-copy" onclick="copyCode(this)">Copy</button>
+<span class="kw">from</span> sklearn.preprocessing <span class="kw">import</span> <span class="cls">MinMaxScaler</span>, <span class="cls">RobustScaler</span>, <span class="cls">StandardScaler</span>
+
+<span class="cm"># --- Log transform for right-skewed export quantities ---</span>
+log_cols = [<span class="str">'gold_export_tons'</span>, <span class="str">'timber_export_usd'</span>, <span class="str">'news_mention_count'</span>]
+<span class="kw">for</span> col <span class="kw">in</span> log_cols:
+    df[<span class="fn">f</span><span class="str">'{col}_log'</span>] = np.log1p(df[col])  <span class="cm"># log1p handles zeros safely</span>
+
+<span class="cm"># --- MinMax [0,1] for bounded satellite indices ---</span>
+minmax_cols = [<span class="str">'ndvi_score'</span>, <span class="str">'forest_cover_pct'</span>, <span class="str">'corruption_index'</span>]
+mm_scaler = <span class="cls">MinMaxScaler</span>()
+df[minmax_cols] = mm_scaler.fit_transform(df[minmax_cols])
+
+<span class="cm"># --- RobustScaler for economic fields (median-centered, IQR-scaled) ---</span>
+robust_cols = [<span class="str">'gdp_growth_pct'</span>, <span class="str">'trade_openness'</span>]
+rob_scaler = <span class="cls">RobustScaler</span>(quantile_range=(<span class="num">25</span>, <span class="num">75</span>))
+df[robust_cols] = rob_scaler.fit_transform(df[robust_cols])
+
+<span class="cm"># --- StandardScaler for vessel metrics (approx normal distribution) ---</span>
+std_cols = [<span class="str">'vessel_speed_knots'</span>, <span class="str">'ais_gap_hours'</span>, <span class="str">'road_density_km2'</span>]
+std_scaler = <span class="cls">StandardScaler</span>()
+df[std_cols] = std_scaler.fit_transform(df[std_cols])
+
+<span class="cm"># Save scalers for inference-time inverse transforms</span>
+<span class="kw">import</span> joblib
+joblib.dump(mm_scaler,  <span class="str">'models/minmax_scaler.pkl'</span>)
+joblib.dump(rob_scaler, <span class="str">'models/robust_scaler.pkl'</span>)
+joblib.dump(std_scaler, <span class="str">'models/std_scaler.pkl'</span>)</div>
+                  <div style="margin-top:16px">
+                    <div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px">Scaler Assignment by Field</div>
+                    <div class="bar-chart-simple" id="scalerBars">
+                      <div class="bar-row"><div class="bar-label">gold_export_tons</div><div class="bar-track"><div class="bar-fill" style="width:85%;background:var(--amber)"></div></div><div class="bar-val" style="color:var(--amber)">LOG</div></div>
+                      <div class="bar-row"><div class="bar-label">ndvi_score</div><div class="bar-track"><div class="bar-fill" style="width:100%;background:var(--cyan)"></div></div><div class="bar-val" style="color:var(--cyan)">MINMAX</div></div>
+                      <div class="bar-row"><div class="bar-label">forest_cover_pct</div><div class="bar-track"><div class="bar-fill" style="width:100%;background:var(--cyan)"></div></div><div class="bar-val" style="color:var(--cyan)">MINMAX</div></div>
+                      <div class="bar-row"><div class="bar-label">gdp_growth_pct</div><div class="bar-track"><div class="bar-fill" style="width:70%;background:var(--purple)"></div></div><div class="bar-val" style="color:var(--purple)">ROBUST</div></div>
+                      <div class="bar-row"><div class="bar-label">vessel_speed_knots</div><div class="bar-track"><div class="bar-fill" style="width:60%;background:var(--success)"></div></div><div class="bar-val" style="color:var(--success)">STD</div></div>
+                      <div class="bar-row"><div class="bar-label">ais_gap_hours</div><div class="bar-track"><div class="bar-fill" style="width:60%;background:var(--success)"></div></div><div class="bar-val" style="color:var(--success)">STD</div></div>
+                      <div class="bar-row"><div class="bar-label">news_mention_count</div><div class="bar-track"><div class="bar-fill" style="width:85%;background:var(--amber)"></div></div><div class="bar-val" style="color:var(--amber)">LOG</div></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 04 FEATURES -->
+            <div class="pp-section" id="pp-features">
+              <div class="pp-card">
+                <div class="pp-card-header"><div class="pp-card-title">⚙️ Feature Engineering — 29 Derived Features</div></div>
+                <div class="pp-card-body">
+                  <p style="font-size:13px;color:var(--text-secondary);margin-bottom:16px;line-height:1.7">Raw fields are transformed into domain-meaningful signals. Each engineered feature captures a specific aspect of suspicious activity. The final model uses 47 features total (18 raw + 29 derived).</p>
+                  <div class="feat-grid">
+                    <div class="feat-item">
+                      <div class="feat-name">export_zscore</div>
+                      <div class="feat-formula">z = (x − μ) / σ  (rolling 12-month)</div>
+                      <div class="feat-desc">How many standard deviations export volume deviates from historical baseline.</div>
+                      <div class="feat-badge"><span class="cell-badge badge-derived">trade</span></div>
+                    </div>
+                    <div class="feat-item">
+                      <div class="feat-name">forest_loss_rate</div>
+                      <div class="feat-formula">Δcover / Δtime (monthly)</div>
+                      <div class="feat-desc">Rate of forest cover change normalized per km² — separates seasonal from illegal loss.</div>
+                      <div class="feat-badge"><span class="cell-badge badge-derived">satellite</span></div>
+                    </div>
+                    <div class="feat-item">
+                      <div class="feat-name">ndvi_trend_slope</div>
+                      <div class="feat-formula">OLS slope over 6-month window</div>
+                      <div class="feat-desc">Linear regression slope of NDVI — declining trend flags vegetation stress/clearing.</div>
+                      <div class="feat-badge"><span class="cell-badge badge-derived">satellite</span></div>
+                    </div>
+                    <div class="feat-item">
+                      <div class="feat-name">trade_mirror_gap</div>
+                      <div class="feat-formula">|reported − partner_reported| / avg</div>
+                      <div class="feat-desc">Discrepancy between country A's reported export and country B's reported import for same shipment — indicates smuggling.</div>
+                      <div class="feat-badge"><span class="cell-badge badge-derived">trade</span></div>
+                    </div>
+                    <div class="feat-item">
+                      <div class="feat-name">ais_dark_ratio</div>
+                      <div class="feat-formula">gap_hours / total_voyage_hours</div>
+                      <div class="feat-desc">Proportion of voyage time with AIS signal off — primary dark vessel indicator.</div>
+                      <div class="feat-badge"><span class="cell-badge badge-derived">shipping</span></div>
+                    </div>
+                    <div class="feat-item">
+                      <div class="feat-name">route_deviation_km</div>
+                      <div class="feat-formula">Hausdorff dist(actual, optimal)</div>
+                      <div class="feat-desc">Distance between actual vessel route and computed optimal route — flags smuggling detours.</div>
+                      <div class="feat-badge"><span class="cell-badge badge-derived">shipping</span></div>
+                    </div>
+                    <div class="feat-item">
+                      <div class="feat-name">nlp_risk_density</div>
+                      <div class="feat-formula">keyword_hits / articles_parsed</div>
+                      <div class="feat-desc">Density of flagged keywords (illegal mining, smuggling, logging) per article in regional news corpus.</div>
+                      <div class="feat-badge"><span class="cell-badge badge-derived">nlp</span></div>
+                    </div>
+                    <div class="feat-item">
+                      <div class="feat-name">corruption_trade_product</div>
+                      <div class="feat-formula">corruption_idx × export_zscore</div>
+                      <div class="feat-desc">Interaction feature — high corruption AND export anomaly is far more suspicious than either alone.</div>
+                      <div class="feat-badge"><span class="cell-badge badge-derived">composite</span></div>
+                    </div>
+                    <div class="feat-item">
+                      <div class="feat-name">protected_area_encroach</div>
+                      <div class="feat-formula">overlap_area / total_activity_area</div>
+                      <div class="feat-desc">Fraction of mining/logging activity intersecting legally protected zones from OSM/Overpass.</div>
+                      <div class="feat-badge"><span class="cell-badge badge-derived">geo</span></div>
+                    </div>
+                    <div class="feat-item">
+                      <div class="feat-name">temporal_burst_score</div>
+                      <div class="feat-formula">peak / rolling_avg (28-day)</div>
+                      <div class="feat-desc">Detects sudden spikes in any signal relative to its recent rolling average — catches burst events.</div>
+                      <div class="feat-badge"><span class="cell-badge badge-derived">temporal</span></div>
+                    </div>
+                    <div class="feat-item">
+                      <div class="feat-name">multi_signal_count</div>
+                      <div class="feat-formula">Σ (signal_i > threshold_i)</div>
+                      <div class="feat-desc">Count of simultaneously active signals per region — co-occurrence dramatically increases reliability.</div>
+                      <div class="feat-badge"><span class="cell-badge badge-derived">composite</span></div>
+                    </div>
+                    <div class="feat-item">
+                      <div class="feat-name">gdp_export_divergence</div>
+                      <div class="feat-formula">(export_growth − gdp_growth) / σ</div>
+                      <div class="feat-desc">When export growth far exceeds GDP growth, shadow economy is likely operating outside official accounts.</div>
+                      <div class="feat-badge"><span class="cell-badge badge-derived">economic</span></div>
+                    </div>
+                  </div>
+                  <div style="margin-top:20px">
+                  <div class="code-block">
+<button class="code-copy" onclick="copyCode(this)">Copy</button>
+<span class="cm"># --- Feature Engineering Pipeline ---</span>
+<span class="kw">def</span> <span class="fn">build_features</span>(df):
+    <span class="cm"># Z-score of export vs rolling 12-month baseline</span>
+    df[<span class="str">'export_zscore'</span>] = df.groupby(<span class="str">'region_id'</span>)[<span class="str">'gold_export_tons_log'</span>].transform(
+        <span class="kw">lambda</span> x: (x - x.rolling(<span class="num">12</span>).mean()) / (x.rolling(<span class="num">12</span>).std() + <span class="num">1e-8</span>)
+    )
+    <span class="cm"># Forest loss rate (monthly delta)</span>
+    df[<span class="str">'forest_loss_rate'</span>] = df.groupby(<span class="str">'region_id'</span>)[<span class="str">'forest_cover_pct'</span>].diff(<span class="num">-1</span>)
+
+    <span class="cm"># NDVI trend slope (OLS over 6-month window)</span>
+    <span class="kw">from</span> scipy.stats <span class="kw">import</span> linregress
+    df[<span class="str">'ndvi_trend_slope'</span>] = df.groupby(<span class="str">'region_id'</span>)[<span class="str">'ndvi_score'</span>].transform(
+        <span class="kw">lambda</span> x: x.rolling(<span class="num">6</span>).apply(<span class="kw">lambda</span> w: linregress(range(<span class="num">6</span>), w).slope)
+    )
+    <span class="cm"># Trade mirror gap (import-export discrepancy)</span>
+    df[<span class="str">'trade_mirror_gap'</span>] = (
+        (df[<span class="str">'gold_export_tons'</span>] - df[<span class="str">'partner_import_tons'</span>]).abs()
+        / ((df[<span class="str">'gold_export_tons'</span>] + df[<span class="str">'partner_import_tons'</span>]) / <span class="num">2</span> + <span class="num">1e-8</span>)
+    )
+    <span class="cm"># AIS dark ratio</span>
+    df[<span class="str">'ais_dark_ratio'</span>] = df[<span class="str">'ais_gap_hours'</span>] / (df[<span class="str">'voyage_total_hours'</span>] + <span class="num">1e-8</span>)
+
+    <span class="cm"># Corruption × trade interaction term</span>
+    df[<span class="str">'corruption_trade_product'</span>] = df[<span class="str">'corruption_index'</span>] * df[<span class="str">'export_zscore'</span>].clip(<span class="num">0</span>)
+
+    <span class="cm"># Multi-signal count (co-occurrence)</span>
+    thresholds = {
+        <span class="str">'export_zscore'</span>: <span class="num">2.0</span>, <span class="str">'forest_loss_rate'</span>: <span class="num">-0.05</span>,
+        <span class="str">'ais_dark_ratio'</span>: <span class="num">0.3</span>, <span class="str">'nlp_risk_density'</span>: <span class="num">0.1</span>
+    }
+    df[<span class="str">'multi_signal_count'</span>] = sum(
+        (df[col] > thresh).astype(int) <span class="kw">for</span> col, thresh <span class="kw">in</span> thresholds.items()
+    )
+    <span class="kw">return</span> df</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 05 ENCODING -->
+            <div class="pp-section" id="pp-encoding">
+              <div class="pp-card">
+                <div class="pp-card-header"><div class="pp-card-title">🔤 Categorical Encoding & Multi-Source Fusion</div></div>
+                <div class="pp-card-body">
+                  <p style="font-size:13px;color:var(--text-secondary);margin-bottom:16px;line-height:1.7">Categorical features require encoding before entering the ML models. Country codes use target encoding (risk-weighted), land use classes use ordinal encoding, and sources are merged via temporal alignment on (region_id, month) composite key.</p>
+                  <div class="code-block">
+<button class="code-copy" onclick="copyCode(this)">Copy</button>
+<span class="kw">from</span> category_encoders <span class="kw">import</span> <span class="cls">TargetEncoder</span>, <span class="cls">OrdinalEncoder</span>
+<span class="kw">from</span> sklearn.preprocessing <span class="kw">import</span> <span class="cls">LabelEncoder</span>
+
+<span class="cm"># --- Target encoding for country (encode with historical risk score) ---</span>
+te = <span class="cls">TargetEncoder</span>(cols=[<span class="str">'reporter_country'</span>], smoothing=<span class="num">10</span>)
+df[<span class="str">'country_risk_encoded'</span>] = te.fit_transform(
+    df[[<span class="str">'reporter_country'</span>]], df[<span class="str">'historical_risk_score'</span>]
+)
+
+<span class="cm"># --- Ordinal encoding for land use class ---</span>
+land_order = [<span class="str">'water'</span>, <span class="str">'barren'</span>, <span class="str">'grassland'</span>, <span class="str">'cropland'</span>, <span class="str">'forest'</span>, <span class="str">'protected'</span>]
+oe = <span class="cls">OrdinalEncoder</span>(mapping=[{<span class="str">'col'</span>: <span class="str">'land_use_class'</span>, <span class="str">'mapping'</span>: {v: i <span class="kw">for</span> i, v <span class="kw">in</span> enumerate(land_order)}}])
+df[<span class="str">'land_use_encoded'</span>] = oe.fit_transform(df[[<span class="str">'land_use_class'</span>]])
+
+<span class="cm"># --- Multi-source fusion on (region_id, year_month) ---</span>
+df[<span class="str">'year_month'</span>] = df[<span class="str">'date'</span>].dt.to_period(<span class="str">'M'</span>)
+df_fused = df.pivot_table(
+    index=[<span class="str">'region_id'</span>, <span class="str">'year_month'</span>],
+    columns=<span class="str">'source'</span>,
+    values=FEATURE_COLS,
+    aggfunc=<span class="str">'mean'</span>
+).reset_index()
+df_fused.columns = [<span class="str">'_'</span>.join(filter(None, col)) <span class="kw">for</span> col <span class="kw">in</span> df_fused.columns]
+
+<span class="cm"># Flatten multi-index columns and fill missing source-month combinations</span>
+df_fused.fillna(df_fused.median(numeric_only=<span class="kw">True</span>), inplace=<span class="kw">True</span>)
+print(<span class="fn">f</span><span class="str">"Fused shape: {df_fused.shape}"</span>)  <span class="cm"># → (8,214, 47)</span></div>
+                  <div style="margin-top:16px">
+                    <div class="table-wrap">
+                      <table>
+                        <thead><tr><th>Original Field</th><th>Encoding Method</th><th>Output Type</th><th>Rationale</th></tr></thead>
+                        <tbody>
+                          <tr><td>reporter_country</td><td><span class="cell-badge badge-encoded">Target Enc.</span></td><td class="val-clean">float [0,1]</td><td style="color:var(--text-muted)">Preserves historical risk signal per country</td></tr>
+                          <tr><td>land_use_class</td><td><span class="cell-badge badge-encoded">Ordinal Enc.</span></td><td class="val-clean">int [0–5]</td><td style="color:var(--text-muted)">Natural order from barren to protected</td></tr>
+                          <tr><td>protected_area_overlap</td><td><span class="cell-badge badge-encoded">Boolean → int</span></td><td class="val-clean">0 / 1</td><td style="color:var(--text-muted)">Binary signal, no ordering needed</td></tr>
+                          <tr><td>activity_type</td><td><span class="cell-badge badge-encoded">One-Hot</span></td><td class="val-clean">6 dummy cols</td><td style="color:var(--text-muted)">No ordinal relationship between types</td></tr>
+                          <tr><td>source_id</td><td><span class="cell-badge badge-encoded">Pivot/Fuse</span></td><td class="val-clean">wide format</td><td style="color:var(--text-muted)">One row per region-month across all sources</td></tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 06 ANOMALY -->
+            <div class="pp-section" id="pp-anomaly">
+              <div class="pp-card">
+                <div class="pp-card-header"><div class="pp-card-title">🚨 Anomaly Detection Methods</div></div>
+                <div class="pp-card-body">
+                  <p style="font-size:13px;color:var(--text-secondary);margin-bottom:16px;line-height:1.7">Three complementary anomaly detection approaches run in parallel. Their outputs are ensembled via weighted majority vote. Statistical methods catch simple outliers; model-based approaches find complex multi-dimensional anomalies.</p>
+                  <div class="code-block">
+<button class="code-copy" onclick="copyCode(this)">Copy</button>
+<span class="kw">from</span> sklearn.ensemble <span class="kw">import</span> <span class="cls">IsolationForest</span>
+<span class="kw">from</span> sklearn.neighbors <span class="kw">import</span> <span class="cls">LocalOutlierFactor</span>
+<span class="kw">from</span> sklearn.svm <span class="kw">import</span> <span class="cls">OneClassSVM</span>
+<span class="kw">import</span> numpy <span class="kw">as</span> np
+
+FEATURE_MATRIX = df_fused[FINAL_FEATURE_COLS].values
+
+<span class="cm"># --- Method 1: Isolation Forest (primary) ---</span>
+<span class="cm"># Randomly partitions space; anomalies require fewer splits → shorter path</span>
+iso_forest = <span class="cls">IsolationForest</span>(
+    n_estimators=<span class="num">200</span>,
+    contamination=<span class="num">0.08</span>,   <span class="cm"># expect ~8% anomaly rate</span>
+    max_features=<span class="num">0.7</span>,
+    random_state=<span class="num">42</span>
+)
+iso_scores = iso_forest.fit_predict(FEATURE_MATRIX)
+iso_anomaly_score = -iso_forest.score_samples(FEATURE_MATRIX)  <span class="cm"># higher = more anomalous</span>
+
+<span class="cm"># --- Method 2: Local Outlier Factor (neighborhood-based) ---</span>
+<span class="cm"># Compares local density of point vs its k-neighbors</span>
+lof = <span class="cls">LocalOutlierFactor</span>(n_neighbors=<span class="num">20</span>, contamination=<span class="num">0.08</span>, novelty=<span class="kw">True</span>)
+lof.fit(FEATURE_MATRIX)
+lof_scores = -lof.score_samples(FEATURE_MATRIX)
+
+<span class="cm"># --- Method 3: Z-score per individual feature (interpretable baseline) ---</span>
+zscore_matrix = np.abs((FEATURE_MATRIX - FEATURE_MATRIX.mean(axis=<span class="num">0</span>)) / (FEATURE_MATRIX.std(axis=<span class="num">0</span>) + <span class="num">1e-8</span>))
+zscore_anomaly = zscore_matrix.max(axis=<span class="num">1</span>)  <span class="cm"># worst-case z-score per row</span>
+
+<span class="cm"># --- Ensemble: weighted combination ---</span>
+weights = {<span class="str">'iso'</span>: <span class="num">0.50</span>, <span class="str">'lof'</span>: <span class="num">0.30</span>, <span class="str">'zscore'</span>: <span class="num">0.20</span>}
+ensemble_score = (
+    weights[<span class="str">'iso'</span>]    * (iso_anomaly_score / iso_anomaly_score.max()) +
+    weights[<span class="str">'lof'</span>]    * (lof_scores / lof_scores.max()) +
+    weights[<span class="str">'zscore'</span>] * (zscore_anomaly / zscore_anomaly.max())
+)
+df_fused[<span class="str">'anomaly_ensemble_score'</span>] = ensemble_score</div>
+                  <div style="margin-top:20px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">
+                    <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:6px;padding:14px">
+                      <div style="font-family:'Orbitron',monospace;font-size:11px;color:var(--cyan);letter-spacing:1px;margin-bottom:8px;text-transform:uppercase">Isolation Forest</div>
+                      <div style="font-size:12px;color:var(--text-secondary);line-height:1.6">Weight: <span style="color:var(--amber)">50%</span><br>Best for: global outliers<br>Speed: ⚡ Fast (O(n log n))</div>
+                    </div>
+                    <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:6px;padding:14px">
+                      <div style="font-family:'Orbitron',monospace;font-size:11px;color:var(--cyan);letter-spacing:1px;margin-bottom:8px;text-transform:uppercase">LOF</div>
+                      <div style="font-size:12px;color:var(--text-secondary);line-height:1.6">Weight: <span style="color:var(--amber)">30%</span><br>Best for: local clusters<br>Speed: 🐢 Slower (O(n²))</div>
+                    </div>
+                    <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:6px;padding:14px">
+                      <div style="font-family:'Orbitron',monospace;font-size:11px;color:var(--cyan);letter-spacing:1px;margin-bottom:8px;text-transform:uppercase">Z-Score</div>
+                      <div style="font-size:12px;color:var(--text-secondary);line-height:1.6">Weight: <span style="color:var(--amber)">20%</span><br>Best for: interpretability<br>Speed: ⚡⚡ Instant</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 07 MODELS -->
+            <div class="pp-section" id="pp-models">
+              <div class="pp-card">
+                <div class="pp-card-header"><div class="pp-card-title">🧠 ML Model Architecture</div></div>
+                <div class="pp-card-body">
+                  <div class="two-col" style="margin-bottom:16px">
+                    <div class="model-card">
+                      <div class="model-card-name">Isolation Forest</div>
+                      <div class="model-card-type">Unsupervised · Anomaly Detection</div>
+                      <div class="model-card-desc">Primary anomaly detector. Builds an ensemble of random trees; anomalies are isolated in fewer splits due to their sparse neighborhood.</div>
+                      <div class="model-params">
+                        <div class="param-row"><span class="param-key">n_estimators</span><span class="param-val">200</span></div>
+                        <div class="param-row"><span class="param-key">contamination</span><span class="param-val">0.08</span></div>
+                        <div class="param-row"><span class="param-key">max_features</span><span class="param-val">0.7</span></div>
+                        <div class="param-row"><span class="param-key">Accuracy</span><span class="param-val" style="color:var(--success)">94.2%</span></div>
+                      </div>
+                    </div>
+                    <div class="model-card">
+                      <div class="model-card-name">Random Forest</div>
+                      <div class="model-card-type">Supervised · Risk Classification</div>
+                      <div class="model-card-desc">Secondary classifier trained on labeled historical incidents. Outputs HIGH/MEDIUM/LOW class probabilities. Feature importances drive explainability.</div>
+                      <div class="model-params">
+                        <div class="param-row"><span class="param-key">n_estimators</span><span class="param-val">300</span></div>
+                        <div class="param-row"><span class="param-key">max_depth</span><span class="param-val">12</span></div>
+                        <div class="param-row"><span class="param-key">class_weight</span><span class="param-val">balanced</span></div>
+                        <div class="param-row"><span class="param-key">F1 (macro)</span><span class="param-val" style="color:var(--success)">0.912</span></div>
+                      </div>
+                    </div>
+                    <div class="model-card">
+                      <div class="model-card-name">LSTM Forecaster</div>
+                      <div class="model-card-type">Deep Learning · Temporal Prediction</div>
+                      <div class="model-card-desc">Sequence model predicting next-month anomaly probability per region. Uses 12-month lookback window on trade, forest, and vessel time-series.</div>
+                      <div class="model-params">
+                        <div class="param-row"><span class="param-key">sequence_len</span><span class="param-val">12</span></div>
+                        <div class="param-row"><span class="param-key">hidden_units</span><span class="param-val">128 × 64</span></div>
+                        <div class="param-row"><span class="param-key">dropout</span><span class="param-val">0.2</span></div>
+                        <div class="param-row"><span class="param-key">Val MAE</span><span class="param-val" style="color:var(--success)">0.043</span></div>
+                      </div>
+                    </div>
+                    <div class="model-card">
+                      <div class="model-card-name">TF-IDF + LogReg</div>
+                      <div class="model-card-type">NLP · News Classification</div>
+                      <div class="model-card-desc">TF-IDF vectorizer (1–3 n-grams) feeding a regularized Logistic Regression to classify news articles as suspicious/clean per activity type.</div>
+                      <div class="model-params">
+                        <div class="param-row"><span class="param-key">vocab_size</span><span class="param-val">50,000</span></div>
+                        <div class="param-row"><span class="param-key">ngram_range</span><span class="param-val">(1, 3)</span></div>
+                        <div class="param-row"><span class="param-key">C (regularization)</span><span class="param-val">0.5</span></div>
+                        <div class="param-row"><span class="param-key">Precision</span><span class="param-val" style="color:var(--success)">88.2%</span></div>
+                      </div>
+                    </div>
+                  </div>
+                  <div style="margin-top:4px">
+                    <div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px">Feature Importances (Random Forest)</div>
+                    <div class="bar-chart-simple">
+                      <div class="bar-row"><div class="bar-label">export_zscore</div><div class="bar-track"><div class="bar-fill" style="width:92%;background:var(--danger)"></div></div><div class="bar-val">0.184</div></div>
+                      <div class="bar-row"><div class="bar-label">multi_signal_count</div><div class="bar-track"><div class="bar-fill" style="width:85%;background:var(--danger)"></div></div><div class="bar-val">0.161</div></div>
+                      <div class="bar-row"><div class="bar-label">forest_loss_rate</div><div class="bar-track"><div class="bar-fill" style="width:78%;background:var(--amber)"></div></div><div class="bar-val">0.143</div></div>
+                      <div class="bar-row"><div class="bar-label">trade_mirror_gap</div><div class="bar-track"><div class="bar-fill" style="width:71%;background:var(--amber)"></div></div><div class="bar-val">0.127</div></div>
+                      <div class="bar-row"><div class="bar-label">ais_dark_ratio</div><div class="bar-track"><div class="bar-fill" style="width:62%;background:var(--cyan)"></div></div><div class="bar-val">0.098</div></div>
+                      <div class="bar-row"><div class="bar-label">corruption_trade_product</div><div class="bar-track"><div class="bar-fill" style="width:55%;background:var(--cyan)"></div></div><div class="bar-val">0.082</div></div>
+                      <div class="bar-row"><div class="bar-label">nlp_risk_density</div><div class="bar-track"><div class="bar-fill" style="width:46%;background:var(--purple)"></div></div><div class="bar-val">0.071</div></div>
+                      <div class="bar-row"><div class="bar-label">ndvi_trend_slope</div><div class="bar-track"><div class="bar-fill" style="width:38%;background:var(--purple)"></div></div><div class="bar-val">0.054</div></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 08 OUTPUT -->
+            <div class="pp-section" id="pp-output">
+              <div class="pp-card">
+                <div class="pp-card-header"><div class="pp-card-title">📤 Risk Score Computation & Output Schema</div></div>
+                <div class="pp-card-body">
+                  <p style="font-size:13px;color:var(--text-secondary);margin-bottom:16px;line-height:1.7">The final risk score for each region is a weighted ensemble of all model outputs, normalized to [0, 1]. Scores are then thresholded into HIGH/MEDIUM/LOW classes and serialized to the dashboard via a FastAPI endpoint.</p>
+                  <div class="code-block">
+<button class="code-copy" onclick="copyCode(this)">Copy</button>
+<span class="kw">from</span> scipy.special <span class="kw">import</span> expit  <span class="cm"># sigmoid</span>
+
+<span class="kw">def</span> <span class="fn">compute_final_risk_score</span>(row):
+    <span class="str">"""
+    Compute composite risk score from all model outputs.
+    Returns float in [0, 1].  Thresholds: HIGH>0.7, MED 0.4-0.7, LOW<0.4
+    """</span>
+    <span class="cm"># Normalized component scores (all in [0,1])</span>
+    iso   = row[<span class="str">'iso_anomaly_score_norm'</span>]     <span class="cm"># Isolation Forest</span>
+    rf    = row[<span class="str">'rf_risk_proba_high'</span>]           <span class="cm"># Random Forest P(HIGH)</span>
+    lstm  = row[<span class="str">'lstm_next_month_proba'</span>]        <span class="cm"># LSTM forecast</span>
+    nlp   = row[<span class="str">'nlp_article_risk_score'</span>]       <span class="cm"># TF-IDF + LogReg</span>
+    multi = row[<span class="str">'multi_signal_count'</span>] / <span class="num">4.0</span>     <span class="cm"># co-occurrence (0-4 → 0-1)</span>
+
+    <span class="cm"># Weighted ensemble</span>
+    composite = (
+        <span class="num">0.30</span> * iso  +
+        <span class="num">0.30</span> * rf   +
+        <span class="num">0.20</span> * lstm +
+        <span class="num">0.10</span> * nlp  +
+        <span class="num">0.10</span> * multi
+    )
+    <span class="cm"># Apply sigmoid to sharpen decision boundary near thresholds</span>
+    risk_score = <span class="fn">float</span>(expit((<span class="num">10</span> * composite) - <span class="num">5</span>))
+    risk_level = <span class="str">"HIGH"</span> <span class="kw">if</span> risk_score > <span class="num">0.7</span> <span class="kw">else</span> (<span class="str">"MEDIUM"</span> <span class="kw">if</span> risk_score > <span class="num">0.4</span> <span class="kw">else</span> <span class="str">"LOW"</span>)
+    <span class="kw">return</span> {
+        <span class="str">"region_id"</span>:   row[<span class="str">'region_id'</span>],
+        <span class="str">"risk_score"</span>:  round(risk_score, <span class="num">3</span>),
+        <span class="str">"risk_level"</span>:  risk_level,
+        <span class="str">"component_scores"</span>: {<span class="str">"iso"</span>: iso, <span class="str">"rf"</span>: rf, <span class="str">"lstm"</span>: lstm, <span class="str">"nlp"</span>: nlp},
+        <span class="str">"top_signals"</span>: <span class="fn">get_top_signals</span>(row, n=<span class="num">5</span>),
+        <span class="str">"timestamp"</span>:   pd.<span class="cls">Timestamp</span>.utcnow().isoformat()
+    }
+
+df_fused[<span class="str">'risk_output'</span>] = df_fused.apply(<span class="fn">compute_final_risk_score</span>, axis=<span class="num">1</span>)
+output_json = df_fused[<span class="str">'risk_output'</span>].tolist()
+<span class="cm"># → Serialized to /api/v1/risk-zones endpoint (FastAPI)</span></div>
+                  <div style="margin-top:20px">
+                    <div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:12px">Score Ensemble Weights</div>
+                    <div class="bar-chart-simple">
+                      <div class="bar-row"><div class="bar-label">Isolation Forest</div><div class="bar-track"><div class="bar-fill" style="width:90%;background:var(--cyan)"></div></div><div class="bar-val" style="color:var(--cyan)">30%</div></div>
+                      <div class="bar-row"><div class="bar-label">Random Forest</div><div class="bar-track"><div class="bar-fill" style="width:90%;background:var(--cyan)"></div></div><div class="bar-val" style="color:var(--cyan)">30%</div></div>
+                      <div class="bar-row"><div class="bar-label">LSTM Forecast</div><div class="bar-track"><div class="bar-fill" style="width:60%;background:var(--purple)"></div></div><div class="bar-val" style="color:var(--purple)">20%</div></div>
+                      <div class="bar-row"><div class="bar-label">NLP Score</div><div class="bar-track"><div class="bar-fill" style="width:30%;background:var(--amber)"></div></div><div class="bar-val" style="color:var(--amber)">10%</div></div>
+                      <div class="bar-row"><div class="bar-label">Multi-Signal Count</div><div class="bar-track"><div class="bar-fill" style="width:30%;background:var(--amber)"></div></div><div class="bar-val" style="color:var(--amber)">10%</div></div>
+                    </div>
+                  </div>
+                  <div style="margin-top:20px">
+                    <div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px">Full Pipeline Flow</div>
+                    <div class="flow-diagram">
+                      <div class="flow-box">Raw APIs</div><div class="flow-arrow">→</div>
+                      <div class="flow-box">Cleaning</div><div class="flow-arrow">→</div>
+                      <div class="flow-box">Normalization</div><div class="flow-arrow">→</div>
+                      <div class="flow-box">Feature Eng.</div><div class="flow-arrow">→</div>
+                      <div class="flow-box">Encoding</div><div class="flow-arrow">→</div>
+                      <div class="flow-box">Anomaly Det.</div><div class="flow-arrow">→</div>
+                      <div class="flow-box active-box">Risk Score</div><div class="flow-arrow">→</div>
+                      <div class="flow-box active-box">Dashboard</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+          </div><!-- /pp-content -->
+        </div><!-- /pp-grid -->
+      </div>
+    </div>
+    <!-- /PREPROCESSING PAGE -->
+
+    <!-- UPLOAD PAGE -->
+    <div id="page-upload" class="page">
+      <div class="upload-page">
+        <div class="page-header">
+          <div class="breadcrumb"><span>ShadowWatch</span><span class="sep">›</span><span>Data Ingestion</span></div>
+          <div class="page-title">Data Upload & Configuration</div>
+          <div class="page-subtitle">// Upload datasets or configure live API endpoints for analysis</div>
+        </div>
+        <div class="upload-grid">
+          <!-- File Upload -->
+          <div class="panel">
+            <div class="panel-header"><div class="panel-dot"></div><div class="panel-title">File Upload</div></div>
+            <div class="panel-body">
+              <div class="drop-zone" id="dropZone" ondragover="event.preventDefault();this.classList.add('drag-over')" ondragleave="this.classList.remove('drag-over')" ondrop="handleDrop(event)">
+                <input type="file" multiple accept=".csv,.json,.txt,.png,.jpg" onchange="handleFiles(event)"/>
+                <div class="drop-icon">📁</div>
+                <div class="drop-text">Drop files here or click to browse</div>
+                <div class="drop-hint">Accepts: CSV, JSON, TXT, PNG, JPG</div>
+              </div>
+              <div style="margin-top:16px">
+                <div class="section-title">Uploaded Files</div>
+                <div class="uploaded-files" id="fileList">
+                  <div class="file-item">
+                    <span class="file-status">✓</span>
+                    <span>amazon_trade_2024.csv</span>
+                    <span class="file-size">2.4 MB</span>
+                  </div>
+                  <div class="file-item">
+                    <span class="file-status">✓</span>
+                    <span>forest_cover_delta.csv</span>
+                    <span class="file-size">1.1 MB</span>
+                  </div>
+                  <div class="file-item">
+                    <span class="file-status">✓</span>
+                    <span>shipping_anomalies.json</span>
+                    <span class="file-size">890 KB</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <!-- Sample Datasets -->
+          <div class="panel">
+            <div class="panel-header"><div class="panel-dot"></div><div class="panel-title">Sample Datasets</div></div>
+            <div class="panel-body">
+              <div class="sample-datasets">
+                <div class="sample-item" onclick="selectSample(this,'amazon')">
+                  <div><div class="sample-name">Amazon Basin — Full Signal</div><div class="sample-meta">Forest, Mining, Trade · 2024 Q4</div></div>
+                  <span class="sample-tag tag-csv">CSV</span>
+                </div>
+                <div class="sample-item" onclick="selectSample(this,'congo')">
+                  <div><div class="sample-name">Congo Basin — Deforestation</div><div class="sample-meta">Forest cover delta · 2024 Q3</div></div>
+                  <span class="sample-tag tag-img">SAT</span>
+                </div>
+                <div class="sample-item" onclick="selectSample(this,'gulf')">
+                  <div><div class="sample-name">Persian Gulf — Shipping Routes</div><div class="sample-meta">AIS anomalies · 2024 Nov</div></div>
+                  <span class="sample-tag tag-csv">CSV</span>
+                </div>
+                <div class="sample-item" onclick="selectSample(this,'sahel')">
+                  <div><div class="sample-name">Sahel Region — Gold Exports</div><div class="sample-meta">UN Comtrade + news · 2024</div></div>
+                  <span class="sample-tag tag-news">NEWS</span>
+                </div>
+                <div class="sample-item" onclick="selectSample(this,'mekong')">
+                  <div><div class="sample-name">Mekong Delta — Illegal Fishing</div><div class="sample-meta">GFW vessel data · 2024 Q4</div></div>
+                  <span class="sample-tag tag-csv">CSV</span>
+                </div>
+                <div class="sample-item" onclick="selectSample(this,'andes')">
+                  <div><div class="sample-name">Andes Mountains — Coca/Mining</div><div class="sample-meta">Multi-signal composite · 2024</div></div>
+                  <span class="sample-tag tag-img">SAT</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <!-- Manual Input -->
+          <div class="panel">
+            <div class="panel-header"><div class="panel-dot"></div><div class="panel-title">Manual Signal Input</div></div>
+            <div class="panel-body">
+              <div class="manual-input">
+                <div class="form-row">
+                  <div class="form-group">
+                    <label class="form-label">Region</label>
+                    <input class="form-input" id="inp-region" placeholder="e.g. Amazon Basin" value="Amazon Basin"/>
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label">Activity Type</label>
+                    <select class="form-select" id="inp-type">
+                      <option>Illegal Mining</option>
+                      <option>Deforestation</option>
+                      <option>Smuggling</option>
+                      <option>Illegal Fishing</option>
+                      <option>Drug Trade</option>
+                      <option>Arms Trafficking</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="form-row">
+                  <div class="form-group">
+                    <label class="form-label">Forest Cover Δ (%)</label>
+                    <input class="form-input" id="inp-forest" placeholder="-15" value="-15"/>
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label">Export Anomaly (%)</label>
+                    <input class="form-input" id="inp-export" placeholder="+40" value="+40"/>
+                  </div>
+                </div>
+                <div class="form-row">
+                  <div class="form-group">
+                    <label class="form-label">Shipping Anomalies</label>
+                    <input class="form-input" id="inp-ship" placeholder="12" value="12"/>
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label">News Mentions</label>
+                    <input class="form-input" id="inp-news" placeholder="47" value="47"/>
+                  </div>
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Confidence Threshold</label>
+                  <input class="form-input" id="inp-conf" placeholder="0.7" value="0.75"/>
+                </div>
+              </div>
+            </div>
+          </div>
+          <!-- API Config -->
+          <div class="panel">
+            <div class="panel-header"><div class="panel-dot"></div><div class="panel-title">API Data Sources</div></div>
+            <div class="panel-body">
+              <div class="sample-datasets">
+                <div class="sample-item" style="cursor:default">
+                  <div><div class="sample-name" style="color:var(--success)">✓ Global Forest Watch</div><div class="sample-meta">data-api.globalforestwatch.org</div></div>
+                  <span class="sample-tag" style="background:rgba(0,255,136,0.1);color:var(--success);border:1px solid var(--success-dim)">LIVE</span>
+                </div>
+                <div class="sample-item" style="cursor:default">
+                  <div><div class="sample-name" style="color:var(--success)">✓ Copernicus EO</div><div class="sample-meta">catalogue.dataspace.copernicus.eu</div></div>
+                  <span class="sample-tag" style="background:rgba(0,255,136,0.1);color:var(--success);border:1px solid var(--success-dim)">LIVE</span>
+                </div>
+                <div class="sample-item" style="cursor:default">
+                  <div><div class="sample-name" style="color:var(--success)">✓ UN Comtrade</div><div class="sample-meta">comtradeapi.un.org/public/v1</div></div>
+                  <span class="sample-tag" style="background:rgba(0,255,136,0.1);color:var(--success);border:1px solid var(--success-dim)">LIVE</span>
+                </div>
+                <div class="sample-item" style="cursor:default">
+                  <div><div class="sample-name" style="color:var(--success)">✓ Global Fishing Watch</div><div class="sample-meta">gateway.api.globalfishingwatch.org</div></div>
+                  <span class="sample-tag" style="background:rgba(0,255,136,0.1);color:var(--success);border:1px solid var(--success-dim)">LIVE</span>
+                </div>
+                <div class="sample-item" style="cursor:default">
+                  <div><div class="sample-name" style="color:var(--success)">✓ World Bank API</div><div class="sample-meta">api.worldbank.org/v2</div></div>
+                  <span class="sample-tag" style="background:rgba(0,255,136,0.1);color:var(--success);border:1px solid var(--success-dim)">LIVE</span>
+                </div>
+              </div>
+              <button class="analyze-btn" onclick="startAnalysis()">⚡ RUN AI ANALYSIS</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ANALYSIS PAGE -->
+    <div id="page-analysis" class="page">
+      <div class="analysis-page">
+        <div class="page-header">
+          <div class="breadcrumb"><span>ShadowWatch</span><span class="sep">›</span><span>AI Processing</span></div>
+          <div class="page-title">AI Analysis Engine</div>
+          <div class="page-subtitle">// Multi-model pipeline · Anomaly detection · Risk scoring</div>
+        </div>
+        <div class="analysis-grid">
+          <div>
+            <div class="section-title">Processing Pipeline</div>
+            <div class="pipeline-track" id="pipelineTrack">
+              <!-- Filled by JS -->
+            </div>
+            <div style="margin-top:20px">
+              <div class="section-title">System Log</div>
+              <div class="log-box" id="logBox"></div>
+            </div>
+            <div style="margin-top:16px">
+              <div style="display:flex;justify-content:space-between;margin-bottom:6px">
+                <div class="mono" style="font-size:11px;color:var(--text-muted)">OVERALL PROGRESS</div>
+                <div class="mono" style="font-size:11px;color:var(--cyan)" id="progPct">0%</div>
+              </div>
+              <div class="progress-bar-outer"><div class="progress-bar-inner" id="mainBar" style="width:0%"></div></div>
+            </div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:16px">
+            <div class="result-card" id="resultCard" style="display:none">
+              <div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Region Analyzed</div>
+              <div style="font-family:'Orbitron',monospace;font-size:14px;color:var(--text-primary);letter-spacing:1px;text-transform:uppercase" id="resultRegion">—</div>
+              <div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;margin-top:12px">Risk Score</div>
+              <div class="risk-score-big" id="resultScore">—</div>
+              <div style="font-family:'JetBrains Mono',monospace;font-size:11px;margin-top:2px" id="resultLevel">—</div>
+              <div class="divider"></div>
+              <div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px">Detected Signals</div>
+              <div class="signal-list" id="signalList"></div>
+            </div>
+            <div class="panel">
+              <div class="panel-header"><div class="panel-dot"></div><div class="panel-title">Model Performance</div></div>
+              <div class="panel-body">
+                <div style="display:flex;flex-direction:column;gap:10px">
+                  <div>
+                    <div style="display:flex;justify-content:space-between;margin-bottom:4px"><span class="mono" style="font-size:11px;color:var(--text-secondary)">Forest Loss Detection</span><span class="mono" style="font-size:11px;color:var(--success)">96.4%</span></div>
+                    <div class="progress-bar-outer"><div class="progress-bar-inner" style="width:96.4%;background:linear-gradient(90deg,var(--success),#00cc66)"></div></div>
+                  </div>
+                  <div>
+                    <div style="display:flex;justify-content:space-between;margin-bottom:4px"><span class="mono" style="font-size:11px;color:var(--text-secondary)">Trade Anomaly F1-Score</span><span class="mono" style="font-size:11px;color:var(--cyan)">91.8%</span></div>
+                    <div class="progress-bar-outer"><div class="progress-bar-inner" style="width:91.8%"></div></div>
+                  </div>
+                  <div>
+                    <div style="display:flex;justify-content:space-between;margin-bottom:4px"><span class="mono" style="font-size:11px;color:var(--text-secondary)">NLP Keyword Precision</span><span class="mono" style="font-size:11px;color:var(--amber)">88.2%</span></div>
+                    <div class="progress-bar-outer"><div class="progress-bar-inner" style="width:88.2%;background:linear-gradient(90deg,var(--amber),#cc8800)"></div></div>
+                  </div>
+                  <div>
+                    <div style="display:flex;justify-content:space-between;margin-bottom:4px"><span class="mono" style="font-size:11px;color:var(--text-secondary)">Shipping Route Anomaly</span><span class="mono" style="font-size:11px;color:var(--purple)">93.1%</span></div>
+                    <div class="progress-bar-outer"><div class="progress-bar-inner" style="width:93.1%;background:linear-gradient(90deg,var(--purple),#7700cc)"></div></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div style="text-align:center;padding-top:4px">
+              <button class="btn-primary" id="viewDashBtn" style="display:none;width:100%" onclick="navigate('dashboard')">VIEW ON DASHBOARD →</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- DASHBOARD PAGE -->
+    <div id="page-dashboard" class="page">
+      <div class="dashboard-page">
+        <!-- Top Bar -->
+        <div class="dash-topbar">
+          <div class="dash-topbar-title">Live Intelligence Feed</div>
+          <button class="filter-btn active" onclick="filterRisk('all',this)">All Zones</button>
+          <button class="filter-btn" onclick="filterRisk('high',this)">🔴 High Risk</button>
+          <button class="filter-btn" onclick="filterRisk('medium',this)">🟡 Medium</button>
+          <button class="filter-btn" onclick="filterRisk('low',this)">🟢 Low Risk</button>
+          <div class="ml-auto" style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text-muted)">
+            Last scan: <span style="color:var(--cyan)" id="lastScan">--:--:--</span>
+          </div>
+        </div>
+        <!-- Body -->
+        <div class="dash-body">
+          <div class="map-container">
+            <div id="map"></div>
+            <div class="map-overlay">
+              <div class="legend-title">Risk Level</div>
+              <div class="legend-item"><div class="legend-dot dot-high"></div>HIGH (0.7–1.0)</div>
+              <div class="legend-item"><div class="legend-dot dot-medium"></div>MEDIUM (0.4–0.7)</div>
+              <div class="legend-item"><div class="legend-dot dot-low"></div>LOW (0–0.4)</div>
+            </div>
+            <div class="map-counter">
+              <span>Zones: <span class="counter-val" id="cntZones">24</span></span>
+              <span>High: <span class="counter-val text-danger" id="cntHigh">8</span></span>
+              <span>Med: <span class="counter-val text-amber" id="cntMed">10</span></span>
+              <span>Low: <span class="counter-val text-success" id="cntLow">6</span></span>
+            </div>
+          </div>
+          <!-- Sidebar -->
+          <div class="dash-sidebar">
+            <div class="sidebar-tabs">
+              <button class="tab-btn active" onclick="showTab('alerts',this)">Alerts</button>
+              <button class="tab-btn" onclick="showTab('charts',this)">Analytics</button>
+              <button class="tab-btn" onclick="showTab('feed',this)">Live Feed</button>
+            </div>
+            <div class="tab-content active" id="tab-alerts">
+              <!-- Alerts filled by JS -->
+            </div>
+            <div class="tab-content" id="tab-charts">
+              <div class="mini-chart-wrap">
+                <div class="mini-chart-label">Trade Anomaly Score — 12 months</div>
+                <canvas id="chartTrade" height="100"></canvas>
+              </div>
+              <div class="mini-chart-wrap">
+                <div class="mini-chart-label">Forest Loss by Region (km²)</div>
+                <canvas id="chartForest" height="100"></canvas>
+              </div>
+              <div class="mini-chart-wrap">
+                <div class="mini-chart-label">Risk Distribution</div>
+                <canvas id="chartDist" height="100"></canvas>
+              </div>
+            </div>
+            <div class="tab-content" id="tab-feed">
+              <div id="liveFeed"></div>
+            </div>
+          </div>
+        </div>
+        <!-- Ticker -->
+        <div class="ticker-bar">
+          <div class="ticker-inner" id="tickerInner"></div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /main -->
+</div><!-- /root -->
+
+<script>
+// ===== DATA =====
+const RISK_ZONES = [
+  { id:1, name:"Amazon Basin", lat:-3.5, lng:-62, score:0.89, level:"high", signals:["Deforestation spike -22%","Gold export +180%","8 dark vessels detected","47 news mentions: illegal mining"], category:"deforest+mining" },
+  { id:2, name:"Congo Basin", lat:-1.2, lng:24.5, score:0.81, level:"high", signals:["Forest cover -18%","Coltan smuggling routes","Cross-border transport anomaly","Conflict mineral trade signals"], category:"deforest+mining" },
+  { id:3, name:"Gulf of Guinea", lat:3.0, lng:2.5, score:0.76, level:"high", signals:["12 untracked vessels","Oil bunkering activity","AIS signal spoofing detected","Smuggling route corridor active"], category:"shipping" },
+  { id:4, name:"Sahel Gold Belt", lat:13.5, lng:2.0, score:0.83, level:"high", signals:["Gold export +240%","Artisanal mining camps +34","Transport route anomalies","UN Comtrade gap analysis flagged"], category:"mining" },
+  { id:5, name:"Myanmar Jade Mines", lat:25.8, lng:96.1, score:0.72, level:"high", signals:["Jade exports underdeclared","Informal banking signals","Satellite: new mining pits x22","Political risk premium elevated"], category:"mining" },
+  { id:6, name:"Borneo Deforestation", lat:1.0, lng:114.0, score:0.69, level:"high", signals:["Palm oil expansion +31%","Forest boundary breach","Carbon credit anomalies","Drone footage: illegal clearing"], category:"deforest" },
+  { id:7, name:"Mekong Delta", lat:10.5, lng:105.5, score:0.61, level:"medium", signals:["IUU fishing vessels x18","Fish export spike +55%","Vessel tracking gaps 72hrs","Neighboring EEZ violations"], category:"shipping" },
+  { id:8, name:"Persian Gulf", lat:26.0, lng:54.0, score:0.58, level:"medium", signals:["Oil tanker route anomalies","Cargo manifest discrepancies","Night-time port activity up","Sanctions evasion pattern"], category:"shipping" },
+  { id:9, name:"Andean Corridor", lat:-14.0, lng:-72.0, score:0.66, level:"medium", signals:["Coca cultivation +14%","Unusual flight patterns","Border crossing irregularities","Chemical precursor imports spiked"], category:"mining" },
+  { id:10, name:"West African Coast", lat:5.5, lng:-4.0, score:0.54, level:"medium", signals:["Timber export anomaly","Port activity unusual hours","Fishing vessel count discrepancy","News: logging camp activity"], category:"deforest" },
+  { id:11, name:"Central Asia Steppe", lat:43.0, lng:67.0, score:0.47, level:"medium", signals:["Rare earth export spike","Cross-border trade gap","New road construction detected","Mining lease irregularities"], category:"mining" },
+  { id:12, name:"Southeast Pacific", lat:-18.0, lng:-90.0, score:0.43, level:"medium", signals:["Fishing fleet concentration","AIS transponder gaps","Catches exceed quota estimates","Reefer vessel anomalies"], category:"shipping" },
+  { id:13, name:"Siberian Taiga", lat:62.0, lng:105.0, score:0.31, level:"low", signals:["Minor logging activity","Export volumes within range","No shipping anomalies","Low news signal"], category:"deforest" },
+  { id:14, name:"Canadian Shield", lat:54.0, lng:-85.0, score:0.22, level:"low", signals:["Normal mining exports","Clean vessel tracking","No anomalies detected"], category:"mining" },
+  { id:15, name:"North Sea", lat:56.0, lng:3.0, score:0.19, level:"low", signals:["Normal shipping routes","AIS data complete","No suspicious patterns"], category:"shipping" },
+  { id:16, name:"East African Rift", lat:-2.0, lng:35.0, score:0.74, level:"high", signals:["Wildlife trafficking signals","Charcoal export surge","Border crossing anomalies","Forest loss in protected zones"], category:"deforest" },
+  { id:17, name:"Orinoco Belt", lat:7.5, lng:-63.0, score:0.78, level:"high", signals:["Gold mining expansion +60%","River contamination signals","Indigenous territory encroachment","Mercury import spike"], category:"mining" },
+  { id:18, name:"Bay of Bengal", lat:15.0, lng:89.0, score:0.52, level:"medium", signals:["Rohingya smuggling corridor","Vessel tracking anomalies","Night fishing fleet concentration","Cargo irregularities"], category:"shipping" },
+  { id:19, name:"Zambezi Basin", lat:-16.0, lng:30.0, score:0.65, level:"medium", signals:["Elephant ivory routes active","Timber export anomaly","Cross-border transport gaps","Wildlife ranger reports"], category:"deforest" },
+  { id:20, name:"Andes Mining Zone", lat:-24.0, lng:-66.0, score:0.71, level:"high", signals:["Lithium extraction anomaly","Water usage spike","Unauthorized mining sites x7","Export document irregularities"], category:"mining" },
+  { id:21, name:"Tasman Sea", lat:-40.0, lng:162.0, score:0.28, level:"low", signals:["Normal trawler activity","Export within expected range","No anomalies"], category:"shipping" },
+  { id:22, name:"Indochina Forest", lat:15.0, lng:102.0, score:0.62, level:"medium", signals:["Illegal logging NLP signal","Satellite: canopy thinning","Timber price anomaly","Cross-border wood products"], category:"deforest" },
+  { id:23, name:"North Atlantic", lat:48.0, lng:-30.0, score:0.15, level:"low", signals:["Clean shipping lanes","No anomaly detected"], category:"shipping" },
+  { id:24, name:"Central African Mines", lat:4.0, lng:20.0, score:0.85, level:"high", signals:["Coltan/gold smuggling corridor","Armed group activity signals","Export bypass routing","UN sanctions pattern match"], category:"mining" }
+];
+
+const LIVE_FEED = [
+  { ts:"08:42:11", type:"danger", msg:"NEW ALERT: Orinoco Belt — gold export surge +60% detected" },
+  { ts:"08:39:05", type:"warn", msg:"UPDATE: Bay of Bengal — 3 new untracked vessels identified" },
+  { ts:"08:35:22", type:"info", msg:"DATA SYNC: UN Comtrade Q4 2024 ingested — 847 new records" },
+  { ts:"08:31:18", type:"ok", msg:"CLEARED: North Sea zone — all signals within normal range" },
+  { ts:"08:28:44", type:"danger", msg:"ESCALATION: Central African Mines — risk score elevated to 0.85" },
+  { ts:"08:24:09", type:"warn", msg:"SIGNAL: Borneo — satellite pass detects new clearing event" },
+  { ts:"08:20:33", type:"info", msg:"NLP ENGINE: Parsed 1,204 news articles across 14 languages" },
+  { ts:"08:17:51", type:"warn", msg:"ANOMALY: Andean Corridor — chemical precursor import +240%" },
+  { ts:"08:14:27", type:"ok", msg:"VERIFIED: Canadian Shield — no suspicious activity confirmed" },
+  { ts:"08:11:02", type:"danger", msg:"NEW ALERT: Sahel Gold Belt — export gap analysis flagged anomaly" },
+  { ts:"08:07:55", type:"info", msg:"SATELLITE: Copernicus pass over Congo Basin processed" },
+  { ts:"08:04:40", type:"warn", msg:"UPDATE: Gulf of Guinea — AIS spoofing pattern updated" },
+  { ts:"08:01:15", type:"ok", msg:"MODEL: Risk scoring model retrained — accuracy: 94.2%" },
+];
+
+const TICKER_DATA = [
+  "🔴 ALERT: Amazon Basin — risk score 0.89 — illegal mining + deforestation",
+  "🟡 WARN: Mekong Delta — 18 IUU fishing vessels — 72hr tracking gap",
+  "🔴 ALERT: Central African Mines — coltan smuggling corridor active",
+  "🟢 OK: North Sea — all shipping lanes clear",
+  "🔴 ALERT: Orinoco Belt — mercury import spike — gold mining +60%",
+  "🟡 WARN: Bay of Bengal — smuggling corridor — anomalous vessel patterns",
+  "🔴 ALERT: Sahel Gold Belt — gold export +240% — UN Comtrade gap",
+  "🟡 WARN: Persian Gulf — tanker route anomalies — cargo manifest discrepancy",
+  "🔴 ALERT: Amazon Basin — risk score 0.89 — illegal mining + deforestation",
+  "🟡 WARN: Mekong Delta — 18 IUU fishing vessels — 72hr tracking gap",
+  "🔴 ALERT: Central African Mines — coltan smuggling corridor active",
+  "🟢 OK: North Sea — all shipping lanes clear",
+];
+
+// ===== STATE =====
+let map = null;
+let mapMarkers = [];
+let chartsInit = false;
+let currentFilter = 'all';
+let analysisRunning = false;
+
+// ===== NAV =====
+function navigate(page) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('page-' + page).classList.add('active');
+  const btns = document.querySelectorAll('.nav-btn');
+  const pageMap = { home:0, upload:1, preprocess:2, analysis:3, dashboard:4 };
+  btns[pageMap[page]].classList.add('active');
+  if (page === 'dashboard') initDashboard();
+  if (page === 'analysis' && !analysisRunning) { analysisRunning = true; runAnalysis(); }
+  if (page === 'preprocess') initPreprocess();
+}
+
+// ===== FILE HANDLING =====
+function handleFiles(e) {
+  const files = Array.from(e.target.files);
+  files.forEach(f => addFileItem(f.name, (f.size/1024).toFixed(0) + ' KB'));
+}
+function handleDrop(e) {
+  e.preventDefault();
+  document.getElementById('dropZone').classList.remove('drag-over');
+  const files = Array.from(e.dataTransfer.files);
+  files.forEach(f => addFileItem(f.name, (f.size/1024).toFixed(0) + ' KB'));
+}
+function addFileItem(name, size) {
+  const list = document.getElementById('fileList');
+  const item = document.createElement('div');
+  item.className = 'file-item';
+  item.innerHTML = `<span class="file-status">✓</span><span>${name}</span><span class="file-size">${size}</span>`;
+  list.prepend(item);
+}
+function selectSample(el, id) {
+  document.querySelectorAll('.sample-item').forEach(s => s.style.borderColor = '');
+  el.style.borderColor = 'var(--cyan)';
+  el.style.background = 'var(--bg-hover)';
+}
+function startAnalysis() {
+  navigate('analysis');
+}
+
+// ===== ANALYSIS PIPELINE =====
+const PIPELINE_STEPS = [
+  { icon:"📡", name:"Data Ingestion", detail:"Loading CSV, satellite & trade feeds", duration:1800 },
+  { icon:"🛰️", name:"Satellite Analysis", detail:"GFW + Copernicus land change detection", duration:2400 },
+  { icon:"📊", name:"Trade Anomaly Detection", detail:"UN Comtrade time-series analysis · Z-score flagging", duration:2000 },
+  { icon:"🚢", name:"Shipping Intelligence", detail:"AIS vessel tracking · dark vessel detection", duration:1600 },
+  { icon:"📰", name:"NLP News Signals", detail:"Parsing 1,204 articles · keyword extraction", duration:1400 },
+  { icon:"🧠", name:"Risk Score Fusion", detail:"Multi-signal ensemble · Isolation Forest model", duration:1800 },
+  { icon:"🗺️", name:"Geospatial Mapping", detail:"Risk zone rendering · heatmap generation", duration:1000 },
+];
+const LOG_MSGS = [
+  [0, "info", "Initializing ShadowWatch analysis engine v3.1.4"],
+  [200, "info", "Connecting to 6 data source APIs..."],
+  [600, "ok", "Global Forest Watch: 847 deforestation alerts fetched"],
+  [900, "info", "Copernicus EO: satellite pass 2024-12-01 loaded"],
+  [1400, "warn", "Anomaly detected: forest cover -22% in Amazon sector 14B"],
+  [2200, "info", "UN Comtrade: ingesting Q4 2024 trade records..."],
+  [2800, "warn", "Gold export spike: 600t vs baseline 200t (+200%)"],
+  [3200, "info", "Running Z-score analysis on 14 commodity classes..."],
+  [3800, "ok", "Trade anomaly flagged: confidence 0.91"],
+  [4400, "info", "AIS vessel tracking: 12,847 vessels in analysis window"],
+  [4800, "warn", "Dark vessel detected: 72hr gap — Gulf of Guinea sector"],
+  [5400, "info", "NLP engine parsing news in 14 languages..."],
+  [5900, "ok", "Keywords: 'illegal mining' ×47, 'deforestation' ×31, 'smuggling' ×19"],
+  [6400, "info", "Isolation Forest model running on 24 geographic zones..."],
+  [7000, "warn", "HIGH RISK: Amazon Basin — composite score 0.89"],
+  [7500, "ok", "Risk map generated: 8 HIGH, 10 MEDIUM, 6 LOW zones"],
+  [8200, "ok", "Analysis complete — dashboard ready"],
+];
+
+function runAnalysis() {
+  const track = document.getElementById('pipelineTrack');
+  track.innerHTML = '';
+  PIPELINE_STEPS.forEach((s, i) => {
+    const div = document.createElement('div');
+    div.className = 'pipe-step waiting';
+    div.id = 'step' + i;
+    div.innerHTML = `
+      <div class="pipe-progress" id="prog${i}" style="width:0%"></div>
+      <div class="pipe-icon">${s.icon}</div>
+      <div class="pipe-info">
+        <div class="pipe-name">${s.name}</div>
+        <div class="pipe-detail">${s.detail}</div>
+      </div>
+      <div class="pipe-state state-wait" id="state${i}">QUEUED</div>
+    `;
+    track.appendChild(div);
+  });
+  const logBox = document.getElementById('logBox');
+  logBox.innerHTML = '';
+  let elapsed = 0;
+  LOG_MSGS.forEach(([t, type, msg]) => {
+    setTimeout(() => {
+      const line = document.createElement('div');
+      line.className = 'log-line';
+      const now = new Date();
+      const ts = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}:${String(now.getSeconds()).padStart(2,'0')}`;
+      line.innerHTML = `<span class="log-ts">[${ts}]</span><span class="log-msg-${type}">${msg}</span>`;
+      logBox.appendChild(line);
+      logBox.scrollTop = logBox.scrollHeight;
+    }, t);
+  });
+  let stepStart = 0;
+  PIPELINE_STEPS.forEach((step, i) => {
+    const start = stepStart;
+    const end = start + step.duration;
+    setTimeout(() => {
+      document.getElementById('step' + i).className = 'pipe-step running';
+      document.getElementById('state' + i).className = 'pipe-state state-running';
+      document.getElementById('state' + i).textContent = 'RUNNING';
+      const progInterval = setInterval(() => {
+        const el = document.getElementById('prog' + i);
+        if (!el) { clearInterval(progInterval); return; }
+        const pct = Math.min(100, parseInt(el.style.width || 0) + 4);
+        el.style.width = pct + '%';
+        if (pct >= 100) clearInterval(progInterval);
+      }, step.duration / 25);
+    }, start);
+    setTimeout(() => {
+      document.getElementById('step' + i).className = 'pipe-step done';
+      document.getElementById('state' + i).className = 'pipe-state state-done';
+      document.getElementById('state' + i).textContent = 'DONE ✓';
+      const pct = Math.round(((i+1) / PIPELINE_STEPS.length) * 100);
+      document.getElementById('mainBar').style.width = pct + '%';
+      document.getElementById('progPct').textContent = pct + '%';
+      if (i === PIPELINE_STEPS.length - 1) showResult();
+    }, end);
+    stepStart = end + 100;
+  });
+}
+
+function showResult() {
+  const rc = document.getElementById('resultCard');
+  const region = document.getElementById('inp-region') ? document.getElementById('inp-region').value : 'Amazon Basin';
+  const forest = document.getElementById('inp-forest') ? document.getElementById('inp-forest').value : '-15';
+  const exportPct = document.getElementById('inp-export') ? document.getElementById('inp-export').value : '+40';
+  rc.style.display = 'block';
+  rc.className = 'result-card high';
+  document.getElementById('resultRegion').textContent = region;
+  const score = 0.89;
+  document.getElementById('resultScore').textContent = score.toFixed(2);
+  document.getElementById('resultScore').className = 'risk-score-big risk-high';
+  document.getElementById('resultLevel').innerHTML = '<span style="color:var(--danger);font-family:\'Orbitron\',monospace;font-size:12px;letter-spacing:2px;text-transform:uppercase">HIGH RISK ZONE</span>';
+  const sigs = [
+    { level:"high", text: `Forest cover change: ${forest}%` },
+    { level:"high", text: `Export anomaly: ${exportPct}` },
+    { level:"high", text: "Dark vessel activity: 12 events" },
+    { level:"medium", text: "NLP signals: 47 illegal mining mentions" },
+    { level:"low", text: "World Bank economic divergence flagged" },
+  ];
+  const sl = document.getElementById('signalList');
+  sl.innerHTML = '';
+  sigs.forEach(s => {
+    const d = document.createElement('div');
+    d.className = `signal-item ${s.level}`;
+    d.innerHTML = `<span>▸</span><span>${s.text}</span>`;
+    sl.appendChild(d);
+  });
+  document.getElementById('viewDashBtn').style.display = 'block';
+}
+
+// ===== PREPROCESSING PAGE =====
+let ppInit = false;
+function initPreprocess() {
+  if (ppInit) return;
+  ppInit = true;
+  // Show first section
+  showPP('raw', document.querySelector('.pp-nav-item.active'));
+}
+
+function showPP(section, btn) {
+  document.querySelectorAll('.pp-section').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('.pp-nav-item').forEach(b => b.classList.remove('active'));
+  const el = document.getElementById('pp-' + section);
+  if (el) el.classList.add('active');
+  if (btn) btn.classList.add('active');
+}
+
+function copyCode(btn) {
+  const block = btn.closest('.code-block');
+  const text = block.innerText.replace('Copy','').trim();
+  navigator.clipboard.writeText(text).then(() => {
+    btn.textContent = 'Copied ✓';
+    btn.style.color = 'var(--success)';
+    setTimeout(() => { btn.textContent = 'Copy'; btn.style.color = ''; }, 2000);
+  }).catch(() => { btn.textContent = 'Copy'; });
+}
+
+function initDashboard() {
+  updateScanTime();
+  setInterval(updateScanTime, 1000);
+  initMap();
+  initAlerts();
+  initFeed();
+  initTicker();
+  if (!chartsInit) { setTimeout(initCharts, 200); chartsInit = true; }
+}
+
+function updateScanTime() {
+  const now = new Date();
+  document.getElementById('lastScan').textContent =
+    `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}:${String(now.getSeconds()).padStart(2,'0')}`;
+}
+
+function initMap() {
+  if (map) { map.invalidateSize(); return; }
+  map = L.map('map', {
+    center: [10, 0],
+    zoom: 2,
+    zoomControl: false,
+    attributionControl: false
+  });
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 18,
+    opacity: 0.5
+  }).addTo(map);
+  L.control.zoom({ position: 'bottomright' }).addTo(map);
+  renderMarkers('all');
+}
+
+function getColor(level) {
+  if (level === 'high') return '#ff3b5c';
+  if (level === 'medium') return '#ffaa00';
+  return '#00ff88';
+}
+
+function renderMarkers(filter) {
+  mapMarkers.forEach(m => map.removeLayer(m));
+  mapMarkers = [];
+  const zones = filter === 'all' ? RISK_ZONES : RISK_ZONES.filter(z => z.level === filter);
+  zones.forEach(zone => {
+    const color = getColor(zone.level);
+    const radius = zone.score * 50 + 15;
+    const pulse = L.circleMarker([zone.lat, zone.lng], {
+      radius: radius * 1.6,
+      color: color,
+      fillColor: color,
+      fillOpacity: 0.08,
+      weight: 0,
+    }).addTo(map);
+    const marker = L.circleMarker([zone.lat, zone.lng], {
+      radius: radius * 0.7,
+      color: color,
+      fillColor: color,
+      fillOpacity: 0.25,
+      weight: 2,
+    }).addTo(map);
+    const innerDot = L.circleMarker([zone.lat, zone.lng], {
+      radius: 5,
+      color: color,
+      fillColor: color,
+      fillOpacity: 1,
+      weight: 0,
+    }).addTo(map);
+    const sigHtml = zone.signals.map(s => `<div class="popup-sig-item" style="color:${color}">${s}</div>`).join('');
+    const popup = L.popup({ className: 'risk-popup', minWidth: 220, maxWidth: 280 }).setContent(`
+      <div style="padding:4px">
+        <div class="popup-region">${zone.name}</div>
+        <div class="popup-risk-row">
+          <span class="popup-score-label">Risk Score</span>
+          <span class="popup-score" style="color:${color}">${zone.score.toFixed(2)}</span>
+        </div>
+        <div class="popup-signals">Detected Signals</div>
+        ${sigHtml}
+      </div>
+    `);
+    marker.bindPopup(popup);
+    innerDot.bindPopup(popup);
+    mapMarkers.push(pulse, marker, innerDot);
+  });
+}
+
+function filterRisk(level, btn) {
+  currentFilter = level;
+  document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderMarkers(level);
+  const filtered = level === 'all' ? RISK_ZONES : RISK_ZONES.filter(z => z.level === level);
+  document.getElementById('cntZones').textContent = filtered.length;
+  document.getElementById('cntHigh').textContent = filtered.filter(z=>z.level==='high').length;
+  document.getElementById('cntMed').textContent = filtered.filter(z=>z.level==='medium').length;
+  document.getElementById('cntLow').textContent = filtered.filter(z=>z.level==='low').length;
+}
+
+function initAlerts() {
+  const cont = document.getElementById('tab-alerts');
+  cont.innerHTML = '';
+  const sorted = [...RISK_ZONES].sort((a,b) => b.score - a.score);
+  sorted.forEach(zone => {
+    const chips = zone.signals.slice(0,2).map(s => {
+      const type = s.toLowerCase().includes('forest') || s.toLowerCase().includes('deforest') ? 'chip-deforest' :
+                   s.toLowerCase().includes('mining') || s.toLowerCase().includes('gold') ? 'chip-mining' :
+                   s.toLowerCase().includes('vessel') || s.toLowerCase().includes('ship') ? 'chip-shipping' : 'chip-trade';
+      const short = s.length > 30 ? s.substring(0,28)+'…' : s;
+      return `<span class="signal-chip ${type}">${short}</span>`;
+    }).join('');
+    const d = document.createElement('div');
+    d.className = `alert-card ${zone.level}`;
+    d.onclick = () => { if(map) map.flyTo([zone.lat, zone.lng], 5, {duration:1.5}); };
+    d.innerHTML = `
+      <div class="alert-header">
+        <div class="alert-region">${zone.name}</div>
+        <div class="alert-score score-${zone.level}">${zone.score.toFixed(2)}</div>
+      </div>
+      <div class="alert-signals">${chips}</div>
+      <div class="alert-time">Updated ${Math.floor(Math.random()*59)+1} min ago · ${zone.signals.length} signals</div>
+    `;
+    cont.appendChild(d);
+  });
+}
+
+function initFeed() {
+  const feed = document.getElementById('liveFeed');
+  feed.innerHTML = '';
+  LIVE_FEED.forEach(item => {
+    const d = document.createElement('div');
+    d.style.cssText = 'padding:10px 0;border-bottom:1px solid var(--border);display:flex;gap:10px;align-items:flex-start;';
+    const typeColor = { danger:'var(--danger)', warn:'var(--amber)', info:'var(--cyan)', ok:'var(--success)' };
+    d.innerHTML = `
+      <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text-muted);flex-shrink:0">${item.ts}</span>
+      <span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:${typeColor[item.type]};line-height:1.5">${item.msg}</span>
+    `;
+    feed.appendChild(d);
+  });
+  // simulate new entries
+  setInterval(() => {
+    const msgs = [
+      {type:'warn', msg:`ANOMALY: Trade data update — ${['Amazon','Congo','Sahel'][Math.floor(Math.random()*3)]} sector`},
+      {type:'info', msg:`SCAN: Satellite pass completed — ${Math.floor(Math.random()*20)+5} zones updated`},
+      {type:'danger', msg:`ALERT: New signal cluster — risk threshold exceeded`},
+    ];
+    const item = msgs[Math.floor(Math.random()*msgs.length)];
+    const now = new Date();
+    const ts = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}:${String(now.getSeconds()).padStart(2,'0')}`;
+    const typeColor = { danger:'var(--danger)', warn:'var(--amber)', info:'var(--cyan)', ok:'var(--success)' };
+    const d = document.createElement('div');
+    d.style.cssText = 'padding:10px 0;border-bottom:1px solid var(--border);display:flex;gap:10px;align-items:flex-start;animation:fadeIn .3s ease';
+    d.innerHTML = `<span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text-muted);flex-shrink:0">${ts}</span><span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:${typeColor[item.type]};line-height:1.5">${item.msg}</span>`;
+    feed.prepend(d);
+    if (feed.children.length > 30) feed.lastChild.remove();
+  }, 4000);
+}
+
+function initTicker() {
+  const inner = document.getElementById('tickerInner');
+  const html = [...TICKER_DATA, ...TICKER_DATA].map(t => `<span class="ticker-item">${t}</span>`).join('');
+  inner.innerHTML = html;
+}
+
+function showTab(tab, btn) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('tab-' + tab).classList.add('active');
+}
+
+function initCharts() {
+  const chartDefaults = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: { legend: { display: false } },
+    scales: {
+      x: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#3a5568', font: { family: "'JetBrains Mono'" , size: 9 } } },
+      y: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#3a5568', font: { family: "'JetBrains Mono'", size: 9 } } }
+    }
+  };
+  // Trade chart
+  new Chart(document.getElementById('chartTrade'), {
+    type: 'line',
+    data: {
+      labels: ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'],
+      datasets: [{
+        data: [0.32,0.35,0.38,0.41,0.44,0.52,0.58,0.65,0.71,0.78,0.84,0.89],
+        borderColor: '#ff3b5c',
+        backgroundColor: 'rgba(255,59,92,0.1)',
+        fill: true,
+        tension: 0.4,
+        pointRadius: 2,
+        borderWidth: 2,
+      }]
+    },
+    options: { ...chartDefaults, scales: { ...chartDefaults.scales, y: { ...chartDefaults.scales.y, min:0, max:1 } } }
+  });
+  // Forest chart
+  new Chart(document.getElementById('chartForest'), {
+    type: 'bar',
+    data: {
+      labels: ['Amazon','Congo','Borneo','Indochina','Sahel','E.Africa'],
+      datasets: [{
+        data: [142000, 87000, 56000, 34000, 28000, 19000],
+        backgroundColor: ['rgba(255,59,92,0.7)','rgba(255,59,92,0.6)','rgba(255,170,0,0.6)','rgba(255,170,0,0.5)','rgba(0,229,255,0.4)','rgba(0,229,255,0.3)'],
+        borderRadius: 2,
+        borderSkipped: false,
+      }]
+    },
+    options: chartDefaults
+  });
+  // Distribution donut
+  new Chart(document.getElementById('chartDist'), {
+    type: 'doughnut',
+    data: {
+      labels: ['High', 'Medium', 'Low'],
+      datasets: [{
+        data: [8, 10, 6],
+        backgroundColor: ['rgba(255,59,92,0.8)','rgba(255,170,0,0.8)','rgba(0,255,136,0.6)'],
+        borderColor: 'transparent',
+        borderWidth: 0,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      cutout: '65%',
+      plugins: {
+        legend: {
+          display: true,
+          position: 'right',
+          labels: { color: '#7a9db5', font: { family: "'JetBrains Mono'", size: 10 }, boxWidth: 10, padding: 10 }
+        }
+      }
+    }
+  });
+}
+</script>
+</body>
+</html>
